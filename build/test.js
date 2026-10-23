@@ -163,7 +163,9 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
   ok(meta.canonical && meta.canonical.startsWith('https://'), 'canonical is not absolute https');
   ok(meta.twitter === 'summary_large_image', 'twitter card wrong: ' + meta.twitter);
   ok(!!meta.desc, 'missing meta description');
-  ok(!!meta.icon, 'missing favicon');
+  ok(meta.icon === 'favicon.png', 'favicon href wrong: ' + meta.icon);
+  ok(require('fs').existsSync(path.resolve(__dirname, '..', 'docs', 'favicon.png')), 'favicon.png missing from docs/');
+  ok(require('fs').existsSync(path.resolve(__dirname, '..', 'docs', 'apple-touch-icon.png')), 'apple-touch-icon.png missing');
   ok(meta.ogImage.endsWith('og.png') && require('fs').existsSync(path.resolve(__dirname, '..', 'docs', 'og.png')),
      'og.png referenced but not present in docs/');
 
