@@ -6,3 +6,5 @@ build/input.css
 build/og.html
 .DS_Store
 Thumbs.db
+live.png
+*.tmp
