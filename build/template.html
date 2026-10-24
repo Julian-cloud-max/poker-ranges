@@ -120,6 +120,54 @@
   .scroll-x::-webkit-scrollbar{height:8px}
   .scroll-x::-webkit-scrollbar-thumb{background:var(--line2); border-radius:99px}
   @media (max-width:420px){ .matrix{min-width:480px} }
+
+  /* ---------- postflop decision tree ---------- */
+  .tex-card{
+    text-align:left; padding:10px 11px; border-radius:10px;
+    background:var(--panel); border:1px solid var(--line);
+    transition:border-color .15s ease, background .15s ease, transform .15s ease;
+  }
+  .tex-card:hover{border-color:var(--line2); transform:translateY(-1px)}
+  .tex-card.is-active{
+    background:linear-gradient(165deg,rgba(126,231,199,.15),rgba(126,231,199,.04));
+    border-color:rgba(126,231,199,.55);
+    box-shadow:0 8px 26px -14px rgba(126,231,199,.5);
+  }
+  .tex-name{font-size:12.5px; font-weight:500}
+  .tex-boards{display:block; font-size:10.5px; color:var(--dim); margin-top:2px}
+  .tex-rule{display:block; font-size:10.5px; color:var(--muted); margin-top:6px; line-height:1.45}
+  .tone-dot{width:7px; height:7px; border-radius:2px; display:inline-block; flex:0 0 auto}
+  .tone-raise{background:#46c393}
+  .tone-neutral{background:#7ec8f0}
+  .tone-caution{background:#f0a05a}
+
+  .dk{
+    position:relative; aspect-ratio:3/4; border-radius:5px;
+    background:#101b24; border:1px solid #1a2933; color:#93a9b8;
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:0;
+    font-size:9px; line-height:1.05; transition:.12s ease;
+  }
+  .dk:hover{border-color:var(--line2); transform:translateY(-1px)}
+  .dk .r{font-weight:600; font-size:10.5px}
+  .dk .s{font-size:9px; opacity:.85}
+  .dk.is-picked{background:rgba(126,231,199,.14); border-color:rgba(126,231,199,.6); color:#dffff5}
+  .dk.is-picked::after{
+    content:attr(data-slot); position:absolute; top:1px; right:2px;
+    font-size:7.5px; color:#7ee7c7;
+  }
+  .dk-off{opacity:.28}
+  .pcard-slot{
+    min-width:58px; height:64px; border-radius:9px;
+    border:1px dashed var(--line2); background:rgba(255,255,255,.02);
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+  }
+  .pcard-slot.full{border-style:solid; border-color:rgba(126,231,199,.4); background:rgba(126,231,199,.07)}
+  .pcard-rank{font-size:20px; font-weight:600; line-height:1}
+  .pcard-suit{font-size:13px; line-height:1.2}
+  .street-block{border-left:2px solid var(--line2); padding:2px 0 2px 12px}
+  .street-block .lb{font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:var(--dim)}
+  .street-block .tx{font-size:12px; line-height:1.6; color:#c8dbe6; margin-top:4px}
+
 </style>
 </head>
 <body class="min-h-screen">
@@ -145,6 +193,16 @@
       </div>
     </div>
   </header>
+
+  <div class="mb-5 flex flex-wrap items-center gap-3">
+    <div id="modeToggle" class="seg" role="group" aria-label="视图切换">
+      <button type="button" data-view="pre" aria-pressed="true">翻前范围</button>
+      <button type="button" data-view="post" aria-pressed="false">翻后决策树</button>
+    </div>
+    <span id="viewHint" class="text-[11px] text-[var(--dim)]">169 手牌 × 8 位置 · 胜率来自蒙特卡洛模拟</span>
+  </div>
+
+  <div id="preWrap">
 
   <section aria-labelledby="h-pos" class="mb-6">
     <div class="mb-2.5 flex items-baseline justify-between gap-4">
@@ -275,6 +333,63 @@
     </div>
   </section>
 
+  </div><!-- /preWrap -->
+
+  <!-- ================= POSTFLOP ================= -->
+  <section id="postWrap" class="hidden" aria-label="翻后决策树">
+    <div class="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_352px] gap-5 items-start">
+
+      <div class="flex flex-col gap-4">
+        <div class="panel p-4 sm:p-5">
+          <div class="eyebrow mb-1">第一层 · 翻前计划</div>
+          <div id="postLines" class="mt-3 flex flex-wrap gap-2"></div>
+          <p id="postLineBlurb" class="mt-3 text-[12px] leading-relaxed text-[var(--muted)]"></p>
+        </div>
+
+        <div class="panel p-4 sm:p-5">
+          <div class="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+            <div class="eyebrow">第二层 · 翻牌结构</div>
+            <span class="text-[11px] text-[var(--dim)]">先判断牌面属于哪一类，再套策略</span>
+          </div>
+          <div id="postTextures" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2"></div>
+        </div>
+
+        <div class="panel p-4 sm:p-5">
+          <div class="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+            <div class="eyebrow">实战入口 · 选三张翻牌自动分类</div>
+            <span id="postClassifyHint" class="text-[11px] text-[var(--dim)]">点击下方扑克牌，依次放入 3 个槽位</span>
+          </div>
+          <div id="postPick" class="flex items-center gap-2 flex-wrap"></div>
+          <div class="scroll-x mt-3 pb-1">
+            <div id="postDeck" class="grid grid-cols-[repeat(13,minmax(0,1fr))] gap-1" style="min-width:430px"></div>
+          </div>
+          <p class="mt-3 text-[10.5px] leading-relaxed text-[var(--dim)]">
+            分类规则：有对子 → 对子面；三张同花 → 单色；含 J 以上高张时，两色或相连算「高张湿润」、彩虹且松散算「高张干燥」；
+            无高张时同理分为「中张湿润 / 中低干燥」，其中全 ≤9 且相连的归入「低连张」。
+          </p>
+        </div>
+      </div>
+
+      <aside class="xl:sticky xl:top-6 flex flex-col gap-4">
+        <div class="panel p-4 sm:p-5" aria-live="polite">
+          <div id="postCardHead"></div>
+          <div id="postStreets" class="mt-4 flex flex-col gap-3"></div>
+        </div>
+        <div class="panel-flat p-4">
+          <div class="eyebrow mb-2">怎么用这张决策树</div>
+          <p class="text-[11.5px] leading-relaxed text-[var(--muted)]">
+            翻前先定角色（第一层），翻牌亮出来先判结构（第二层），再按策略卡执行三条街（第三层）。
+            牌面判断优先级：对子面 &gt; 单色 &gt; 高张/中低 &gt; 干燥/湿润。
+          </p>
+          <p class="mt-2 text-[11.5px] leading-relaxed text-[var(--dim)]">
+            数字是基准线（baseline），把混合频率简化成了单一动作。对手是跟注站时砍掉所有诈唬，
+            是紧弱型时提高偷池频率——这两条调整比牌面分类本身更影响盈亏。
+          </p>
+        </div>
+      </aside>
+    </div>
+  </section>
+
   <footer class="mt-7 flex flex-wrap items-center justify-between gap-3 border-t border-[var(--line)] pt-4 text-[11px] text-[var(--dim)]">
     <span>8-Max Preflop Range Chart · 基准范围，按对手风格微调</span>
     <span>胜率由 eval7 蒙特卡洛模拟 · 单位 %</span>
@@ -289,7 +404,7 @@ const HAND = D.hands;
 const BY_ID = Object.fromEntries(POS.map(p => [p.id, p]));
 const BUCKET_ORDER = ["EP", "LP", "SB"];
 
-const S = { pos: "BTN", scenario: "rfi", bucket: "LP", mode: "action", hand: "AA" };
+const S = { pos: "BTN", scenario: "rfi", bucket: "LP", mode: "action", hand: "AA", view: "pre" };
 
 function handClass(i, j) {
   if (i === j) return RANKS[i] + RANKS[j];
@@ -595,30 +710,243 @@ document.querySelectorAll("#viewToggle [data-view]").forEach(b =>
     renderMatrix();
   }));
 
+/* ================= 翻后决策树 ================= */
+const PF = D.postflop;
+const PF_SUITS = ["♠", "♥", "♦", "♣"];
+const PF_SUIT_COLOR = ["#cfe0ea", "#f0705a", "#7ec8f0", "#46c393"];
+const PF_RANKS = Array.from("AKQJT98765432");
+const PF_TONE = { raise: "tone-raise", neutral: "tone-neutral", caution: "tone-caution" };
+const post = { line: "ip-rfi", tex: "high-dry", board: [] };
+
+function pfCardRank(ch) { return 14 - PF_RANKS.indexOf(ch); }
+
+function classifyBoard(cards) {
+  if (cards.length < 3) return null;
+  const rs = cards.map(c => c.r).sort((a, b) => b - a);
+  if (rs[0] === rs[1] || rs[1] === rs[2]) return "paired";
+  const cnt = {};
+  cards.forEach(c => cnt[c.s] = (cnt[c.s] || 0) + 1);
+  const maxSuit = Math.max(...Object.values(cnt));
+  if (maxSuit === 3) return "monotone";
+  const twoTone = maxSuit === 2;
+  const span = rs[0] - rs[2];
+  const minGap = Math.min(rs[0] - rs[1], rs[1] - rs[2]);
+  const connected = span <= 3 || minGap <= 1;
+  const wet = twoTone || connected;
+  if (rs[0] >= 11) return wet ? "high-wet" : "high-dry";
+  if (!wet) return "mid-dry";
+  if (rs[0] <= 9 && span <= 3) return "low-connected";
+  return "mid-wet";
+}
+
+function pfLine() { return PF.lines.find(l => l.id === post.line); }
+function pfTex() { return PF.textures.find(t => t.id === post.tex); }
+function pfCard() {
+  const c = PF.cards[post.line];
+  return c ? c[post.tex] : null;
+}
+
+function renderPostLines() {
+  document.getElementById("postLines").innerHTML = PF.lines.map(l =>
+    `<button type="button" class="chip" data-line="${l.id}" aria-pressed="${post.line === l.id}">
+      ${l.name} <span class="opacity-55 text-[10px]">${l.sub}</span>
+    </button>`).join("");
+  document.querySelectorAll("#postLines [data-line]").forEach(b =>
+    b.addEventListener("click", () => { post.line = b.dataset.line; renderPostAll(); }));
+  const l = pfLine();
+  document.getElementById("postLineBlurb").textContent = `${l.blurb} 翻前计划：${l.preflop}`;
+}
+
+function renderPostTextures() {
+  document.getElementById("postTextures").innerHTML = PF.textures.map(t =>
+    `<button type="button" class="tex-card${post.tex === t.id ? " is-active" : ""}" data-tex="${t.id}"
+      aria-pressed="${post.tex === t.id}">
+      <span class="flex items-center gap-2">
+        <span class="tone-dot ${PF_TONE[t.tone] || "tone-neutral"}"></span>
+        <span class="tex-name">${t.name}</span>
+      </span>
+      <span class="tex-boards">${t.boards}</span>
+      <span class="tex-rule">${t.rule}</span>
+    </button>`).join("");
+  document.querySelectorAll("#postTextures [data-tex]").forEach(b =>
+    b.addEventListener("click", () => { post.tex = b.dataset.tex; renderPostAll(); }));
+}
+
+function renderPostCard() {
+  const t = pfTex(), l = pfLine(), c = pfCard();
+  const head = document.getElementById("postCardHead");
+  const streets = document.getElementById("postStreets");
+  if (!t || !l || !c) {
+    head.innerHTML = `<span class="text-[12px] text-[var(--dim)]">选择一条线和一类牌面。</span>`;
+    streets.innerHTML = "";
+    return;
+  }
+  head.innerHTML = `
+    <div class="flex items-center gap-2 flex-wrap">
+      <span class="text-[19px] font-medium tracking-tight">${t.name}</span>
+      <span class="rounded-md px-2 py-0.5 text-[11px]" style="color:var(--accent);border:1px solid rgba(126,231,199,.4)">${l.name}</span>
+    </div>
+    <div class="mt-1.5 text-[11px] text-[var(--dim)]">示例：${t.boards}</div>
+    <div class="mt-3 rounded-lg border border-[var(--line)] bg-[rgba(255,255,255,.02)] p-2.5 text-[11.5px] leading-relaxed">
+      <div><span class="text-[var(--dim)]">谁占优：</span>${t.adv}</div>
+      <div class="mt-1"><span class="text-[var(--dim)]">为什么：</span>${t.why}</div>
+      <div class="mt-1"><span class="text-[var(--dim)]">核心：</span><span class="text-[var(--txt)]">${t.rule}</span></div>
+    </div>`;
+
+  const keys = l.id === "caller" ? ["small", "big", "raise"] : ["flop", "turn", "river"];
+  streets.innerHTML = keys.map((k, i) =>
+    `<div class="street-block">
+      <div class="lb">${l.streets[i] || ["翻牌", "转牌", "河牌"][i]}</div>
+      <div class="tx">${c[k] || "—"}</div>
+    </div>`).join("");
+}
+
+function renderPostPick() {
+  const slots = [0, 1, 2].map(i => {
+    const c = post.board[i];
+    return c
+      ? `<div class="pcard-slot full" data-slot="${i}">
+           <span class="pcard-rank" style="color:${PF_SUIT_COLOR[c.s]}">${PF_RANKS[14 - c.r]}</span>
+           <span class="pcard-suit" style="color:${PF_SUIT_COLOR[c.s]}">${PF_SUITS[c.s]}</span>
+         </div>`
+      : `<div class="pcard-slot"><span class="text-[11px] text-[var(--dim)]">第 ${i + 1} 张</span></div>`;
+  }).join("");
+  const clear = post.board.length
+    ? `<button type="button" class="chip" id="postClear">清空</button>` : "";
+  document.getElementById("postPick").innerHTML = slots + clear;
+  const btn = document.getElementById("postClear");
+  if (btn) btn.addEventListener("click", () => { post.board = []; renderPostAll(); });
+}
+
+function renderPostDeck() {
+  const pickedKey = k => post.board.some(c => c.r + "-" + c.s === k);
+  const deck = document.getElementById("postDeck");
+  deck.innerHTML = PF_RANKS.map((rc, ri) =>
+    PF_SUITS.map((su, si) => {
+      const r = 14 - ri, key = r + "-" + si;
+      const idx = post.board.findIndex(c => c.r + "-" + c.s === key);
+      const dim = post.board.length >= 3 && idx === -1 ? " dk-off" : "";
+      return `<button type="button" class="dk${idx > -1 ? " is-picked" : ""}${dim}"
+        data-r="${r}" data-s="${si}" data-slot="${idx + 1}"
+        aria-label="${rc}${su}">
+        <span class="r" style="color:${idx > -1 || post.board.length < 3 ? PF_SUIT_COLOR[si] : undefined}">${rc}</span>
+        <span class="s">${su}</span>
+      </button>`;
+    }).join("")).join("");
+  deck.querySelectorAll("[data-r]").forEach(b => b.addEventListener("click", () => {
+    const r = +b.dataset.r, s = +b.dataset.s;
+    const idx = post.board.findIndex(c => c.r === r && c.s === s);
+    if (idx > -1) post.board.splice(idx, 1);
+    else if (post.board.length < 3) post.board.push({ r, s });
+    renderPostAll();
+  }));
+}
+
+function renderPostClassify() {
+  const hint = document.getElementById("postClassifyHint");
+  if (post.board.length < 3) {
+    hint.innerHTML = `再选 ${3 - post.board.length} 张牌`;
+    return;
+  }
+  const id = classifyBoard(post.board);
+  const t = PF.textures.find(x => x.id === id);
+  post.tex = id;
+  hint.innerHTML = `这手翻牌属于 <span class="text-[var(--accent)]">${t.name}</span> · ${t.rule}`;
+}
+
+function renderPostAll() {
+  const t = pfTex();
+  if (t) post.tex = t.id;
+  renderPostLines();
+  renderPostTextures();
+  if (post.board.length === 3) { const id = classifyBoard(post.board); if (id) post.tex = id; }
+  renderPostTextures();
+  renderPostCard();
+  renderPostPick();
+  renderPostDeck();
+  renderPostClassify();
+  writeHash();
+}
+
 /* ---------------- deep link ---------------- */
 function readHash() {
+  if (location.hash.startsWith("#post/")) {
+    const m = location.hash.match(/^#post\/([a-z-]+)\/([a-z-]+)\/?$/);
+    if (m) {
+      if (PF.lines.some(l => l.id === m[1])) post.line = m[1];
+      if (PF.textures.some(t => t.id === m[2])) post.tex = m[2];
+      // 深链接只携带线+牌面；残留的手选翻牌会重新分类并覆盖 URL 指定的牌面，必须清掉
+      post.board = [];
+      S.view = "post";
+    }
+    return;
+  }
   const m = location.hash.match(/^#([A-Z+]+)(?:\/(rfi|vs))?(?:\/(EP|LP|SB))?(?:\/([AKQJT2-9]{2}[so]?))?$/);
   if (!m) return;
   if (BY_ID[m[1]]) S.pos = m[1];
   if (m[2]) S.scenario = m[2];
   if (m[3]) S.bucket = m[3];
   if (m[4] && HAND[m[4]]) S.hand = m[4];
+  S.view = "pre";
 }
 function writeHash() {
-  const bits = [S.pos];
-  if (S.scenario !== "rfi") bits.push("vs", S.bucket);
-  if (S.hand) bits.push(S.hand);
-  history.replaceState(null, "", "#" + bits.join("/"));
+  let h;
+  if (S.view === "post") h = "#post/" + post.line + "/" + post.tex;
+  else {
+    const bits = [S.pos];
+    if (S.scenario !== "rfi") bits.push("vs", S.bucket);
+    if (S.hand) bits.push(S.hand);
+    h = "#" + bits.join("/");
+  }
+  history.replaceState(null, "", h);
 }
 
-function renderAll(push) {
-  normalize(); writeHash();
+function setView(v) {
+  S.view = v;
+  document.getElementById("preWrap").classList.toggle("hidden", v !== "pre");
+  document.getElementById("postWrap").classList.toggle("hidden", v !== "post");
+  document.querySelectorAll("#modeToggle [data-view]").forEach(b =>
+    b.setAttribute("aria-pressed", String(b.dataset.view === v)));
+  document.getElementById("viewHint").textContent = v === "pre"
+    ? "169 手牌 × 8 位置 · 胜率来自蒙特卡洛模拟"
+    : "4 条线 × 7 类牌面 · 三街策略基准";
+  if (v === "post") renderPostAll();
+  else writeHash();
+}
+
+function renderAll() {
+  normalize();
+  if (S.view === "post") { renderPostAll(); setViewVisibleOnly(); return; }
+  writeHash();
   renderRail(); renderScenarios(); renderMatrix(); renderDetail(); renderSummary();
 }
+function setViewVisibleOnly() {
+  document.getElementById("preWrap").classList.toggle("hidden", S.view !== "pre");
+  document.getElementById("postWrap").classList.toggle("hidden", S.view !== "post");
+}
+
+document.querySelectorAll("#viewToggle [data-view]").forEach(b =>
+  b.addEventListener("click", () => {
+    S.mode = b.dataset.view;
+    document.querySelectorAll("#viewToggle [data-view]")
+      .forEach(x => x.setAttribute("aria-pressed", String(x.dataset.view === S.mode)));
+    renderMatrix();
+  }));
+
+document.querySelectorAll("#modeToggle [data-view]").forEach(b =>
+  b.addEventListener("click", () => setView(b.dataset.view)));
 
 readHash();
-renderAll();
-window.addEventListener("hashchange", () => { readHash(); normalize(); renderRail(); renderScenarios(); renderMatrix(); renderDetail(); renderSummary(); });
+setView(S.view || "pre");
+if (S.view !== "post") { renderRail(); renderScenarios(); renderMatrix(); renderDetail(); renderSummary(); }
+window.addEventListener("hashchange", () => {
+  readHash();
+  if (S.view === "post") setView("post");
+  else {
+    normalize(); setView("pre");
+    renderRail(); renderScenarios(); renderMatrix(); renderDetail(); renderSummary();
+  }
+});
 </script>
 </body>
 </html>

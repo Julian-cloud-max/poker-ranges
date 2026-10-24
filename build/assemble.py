@@ -28,10 +28,15 @@ def main():
     tpl = open(os.path.join(HERE, "template.html"), encoding="utf-8").read()
     css = open(os.path.join(HERE, "tw.css"), encoding="utf-8").read()
     data = open(os.path.join(HERE, "data.json"), encoding="utf-8").read()
+    post = open(os.path.join(HERE, "postflop.json"), encoding="utf-8").read()
+
+    # 注入为同一份全局数据的两个分支
+    merged = data[:-1] + ',"postflop":' + post + "}"
+    assert json.loads(merged)["postflop"]["textures"], "merged data invalid"
 
     html = (tpl
             .replace("/*__CSS__*/", css)
-            .replace("/*__DATA__*/", data)
+            .replace("/*__DATA__*/", merged)
             .replace("__SITE_URL__", SITE_URL))
 
     out = os.path.join(SITE, "index.html")

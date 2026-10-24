@@ -169,6 +169,61 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
   ok(meta.ogImage.endsWith('og.png') && require('fs').existsSync(path.resolve(__dirname, '..', 'docs', 'og.png')),
      'og.png referenced but not present in docs/');
 
+  // 12. postflop decision tree
+  await page.click('#modeToggle [data-view="post"]');
+  await wait(150);
+  ok(await page.$eval('#postWrap', e => !e.classList.contains('hidden')), 'post view should be visible');
+  ok(await page.$eval('#preWrap', e => e.classList.contains('hidden')), 'pre view should be hidden');
+  const lines = await page.$$eval('#postLines [data-line]', els => els.map(e => e.dataset.line));
+  ok(lines.length === 4, 'expected 4 lines, got ' + lines.length);
+  const texes = await page.$$eval('#postTextures [data-tex]', els => els.map(e => e.dataset.tex));
+  ok(texes.length === 7, 'expected 7 textures, got ' + texes.length);
+  ok(new Set(texes).size === 7, 'duplicate texture cards');
+  const deckN = await page.$$eval('#postDeck .dk', els => els.length);
+  ok(deckN === 52, 'expected 52 deck cards, got ' + deckN);
+
+  // strategy card must be complete for every line × texture (4×7 = 28)
+  let cardFail = [];
+  for (const ln of lines) {
+    for (const tx of texes) {
+      await page.evaluate(([l, t]) => {
+        document.querySelector(`#postLines [data-line="${l}"]`).click();
+        document.querySelector(`#postTextures [data-tex="${t}"]`).click();
+      }, [ln, tx]);
+      await wait(30);
+      const blocks = await page.$$eval('#postStreets .street-block .tx',
+        els => els.map(e => e.textContent.trim()));
+      if (blocks.length !== 3 || blocks.some(b => !b || b === '—')) cardFail.push(ln + '/' + tx);
+    }
+  }
+  ok(cardFail.length === 0, 'incomplete strategy cards: ' + cardFail.slice(0, 5));
+
+  // classifier: pick A♠ 7♦ 2♣ via deck clicks → high-dry
+  await page.evaluate(() => {
+    const pick = (rk, st) => document.querySelector(`#postDeck .dk[data-r="${rk}"][data-s="${st}"]`).click();
+    pick(14, 0); pick(7, 1); pick(2, 3);
+  });
+  await wait(120);
+  const cls = await page.$eval('#postClassifyHint', e => e.textContent);
+  ok(cls.includes('高张干燥'), 'A72 should classify 高张干燥, got: ' + cls);
+  ok(await page.$eval('#postTextures [data-tex="high-dry"]', e => e.classList.contains('is-active')),
+     'classifier should select the classified texture');
+
+  // deep link into postflop
+  await page.goto(FILE + '#post/caller/low-connected', { waitUntil: 'networkidle0' });
+  await wait(400);
+  ok(await page.$eval('#postWrap', e => !e.classList.contains('hidden')), 'post deep link should open post view');
+  const deepLine = await page.$eval('#postLines [aria-pressed="true"]', e => e.dataset.line);
+  ok(deepLine === 'caller', 'post deep link line ' + deepLine);
+  const deepTex = await page.$eval('#postTextures [aria-pressed="true"]', e => e.dataset.tex);
+  ok(deepTex === 'low-connected', 'post deep link texture ' + deepTex);
+
+  // back to preflop keeps working
+  await page.goto(FILE + '#BTN/vs/LP/A5s', { waitUntil: 'networkidle0' });
+  await wait(400);
+  ok(await page.$eval('#preWrap', e => !e.classList.contains('hidden')), 'preflop deep link should open pre view');
+  ok(await page.$eval('#postWrap', e => e.classList.contains('hidden')), 'preflop deep link should hide post view');
+
   await browser.close();
   if (errors.length) fails.push('JS errors: ' + [...new Set(errors)].join(' | '));
   if (fails.length) { console.log('FAIL\n - ' + fails.join('\n - ')); process.exit(1); }
