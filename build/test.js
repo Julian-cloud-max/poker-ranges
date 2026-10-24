@@ -260,14 +260,29 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
     () => [...document.querySelectorAll('#postHandBody .mono')].filter(e => /%$/.test(e.textContent.trim())).length >= 1,
     { timeout: 5000 });
 
-  // suit cycling keeps the class but changes suits
+  // hand is read-only: no cycling control, deck hand cards are inert, visuals differ
+  const hasCyc = await page.$eval('#postPick', el => !!el.querySelector('[data-cyc]'));
+  ok(!hasCyc, 'hand slots must not offer suit cycling');
   const suitsBefore = await page.evaluate(() => post.hand.map(c => c.s).join(','));
-  await page.click('#postPick [data-cyc]');
+  await page.evaluate(() => {
+    const el = document.querySelector('#postDeck .dk.is-mine');
+    if (el) el.click();
+  });
   await wait(80);
   const suitsAfter = await page.evaluate(() => post.hand.map(c => c.s).join(','));
-  ok(suitsBefore !== suitsAfter, 'clicking hand slot should cycle suits: ' + suitsBefore + ' -> ' + suitsAfter);
-  const sameClass = await page.evaluate(() => post.hand[0].r === 14 && post.hand[1].r === 13 && post.hand[0].s === post.hand[1].s);
-  ok(sameClass, 'cycling must keep AKs suited: ' + suitsAfter);
+  ok(suitsBefore === suitsAfter, 'hand must not be changeable from postflop view: ' + suitsBefore + ' -> ' + suitsAfter);
+  const styling = await page.evaluate(() => {
+    const h = document.querySelector('#postPick .pcard-slot.mine');
+    const b = document.querySelector('#postPick .pcard-slot.full:not(.mine)');
+    return {
+      handBorder: h ? getComputedStyle(h).borderColor : null,
+      boardBorder: b ? getComputedStyle(b).borderColor : null,
+      mineInDeck: !!document.querySelector('#postDeck .dk.is-mine'),
+    };
+  });
+  ok(styling.handBorder && styling.boardBorder && styling.handBorder !== styling.boardBorder,
+     'hand slots and board slots should be visually distinct: ' + JSON.stringify(styling));
+  ok(styling.mineInDeck, 'hand cards should be marked in the deck');
 
   // clear clears the board but keeps the hand
   await page.click('#postClear');
