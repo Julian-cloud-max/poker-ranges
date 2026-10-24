@@ -198,7 +198,7 @@
       <div class="flex flex-wrap items-center gap-2 text-[11px] text-[var(--muted)]">
         <span class="rounded-md border border-[var(--line)] bg-[rgba(255,255,255,.03)] px-2.5 py-1">100BB</span>
         <span class="rounded-md border border-[var(--line)] bg-[rgba(255,255,255,.03)] px-2.5 py-1">无 ante</span>
-        <span class="rounded-md border border-[var(--line)] bg-[rgba(255,255,255,.03)] px-2.5 py-1">现金局 8 人桌</span>
+        <span id="sizeChip" class="rounded-md border border-[var(--line)] bg-[rgba(255,255,255,.03)] px-2.5 py-1">现金局 8 人桌</span>
         <span class="rounded-md border border-[var(--line)] bg-[rgba(255,255,255,.03)] px-2.5 py-1">169 手牌 · 1326 组合</span>
       </div>
     </div>
@@ -209,7 +209,13 @@
       <button type="button" data-view="pre" aria-pressed="true">翻前范围</button>
       <button type="button" data-view="post" aria-pressed="false">翻后决策树</button>
     </div>
-    <span id="viewHint" class="text-[11px] text-[var(--dim)]">169 手牌 × 8 位置 · 胜率来自蒙特卡洛模拟</span>
+    <div class="flex items-center gap-2">
+      <span class="text-[11px] text-[var(--dim)]">人数</span>
+      <div id="sizeToggle" class="seg" role="group" aria-label="人数">
+        <button type="button" data-size="2">2</button><button type="button" data-size="3">3</button><button type="button" data-size="4">4</button><button type="button" data-size="5">5</button><button type="button" data-size="6">6</button><button type="button" data-size="7">7</button><button type="button" data-size="8">8</button><button type="button" data-size="9">9</button>
+      </div>
+    </div>
+    <span id="viewHint" class="text-[11px] text-[var(--dim)]">169 手牌 · 胜率来自蒙特卡洛模拟</span>
   </div>
 
   <div id="preWrap">
@@ -218,8 +224,7 @@
     <div class="mb-2.5 flex items-baseline justify-between gap-4">
       <h2 id="h-pos" class="eyebrow">位置 · 从大盲到枪口</h2>
       <span class="text-[11px] text-[var(--dim)]">点击切换位置<span class="hidden sm:inline"> · 高亮为当前 · 实际行动顺序与此相反</span></span>
-    </div>
-    <div class="scroll-x -mx-1 px-1 pb-1">
+    </div>    <div class="scroll-x -mx-1 px-1 pb-1">
       <div id="rail" class="grid grid-flow-col auto-cols-[minmax(88px,1fr)] sm:auto-cols-[minmax(100px,1fr)] gap-2"></div>
     </div>
   </section>
@@ -293,7 +298,7 @@
 
   <section class="mt-6 panel p-4 sm:p-5" aria-labelledby="h-sum">
     <div class="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-      <h2 id="h-sum" class="eyebrow">八个位置一览</h2>
+      <h2 id="h-sum" class="eyebrow">各位置一览</h2>
       <span class="text-[11px] text-[var(--dim)]">百分比 = 占全部 1326 种组合 · 点击行切换</span>
     </div>
     <div class="scroll-x">
@@ -318,7 +323,7 @@
       <div class="eyebrow mb-2">三个胜率分别是什么</div>
       <dl class="space-y-2 text-[12px] leading-relaxed text-[var(--muted)]">
         <div><dt class="text-[var(--txt)]">单挑胜率</dt><dd>对 1 个随机手牌的摊牌胜率，衡量这手牌本身的绝对强度。AA 是 85.2%，最差的 72o 只有 34.6%。</dd></div>
-        <div><dt class="text-[var(--txt)]">8 人底池胜率</dt><dd>对 7 个随机手牌全跟到底能分到的底池份额。8 人公平份额是 12.5%，超过才值得入池。</dd></div>
+        <div><dt class="text-[var(--txt)]">N 人底池胜率</dt><dd>对 N-1 个随机手牌全跟到底能分到的底池份额，N 等于当前选定的人数。公平份额是 100/N%，长期超过它才值得入池。</dd></div>
         <div><dt class="text-[var(--txt)]">对开池范围胜率</dt><dd>对手按该位置范围开池时的摊牌胜率——这个数直接决定你跟注还是反加。</dd></div>
       </dl>
     </div>
@@ -414,14 +419,23 @@
 <script>
 const D = /*__DATA__*/;
 const RANKS = Array.from("AKQJT98765432");
-const POS = D.positions;
 const HAND = D.hands;
-const BY_ID = Object.fromEntries(POS.map(p => [p.id, p]));
-// 展示顺序：大盲 → 小盲 → 按钮 → … → 枪口（与行动顺序相反）
-const POS_ORDER = POS.slice().reverse();
 const BUCKET_ORDER = ["EP", "LP", "SB"];
+const SIZES = [2, 3, 4, 5, 6, 7, 8, 9];
 
-const S = { pos: "BTN", scenario: "rfi", bucket: "LP", mode: "action", hand: "AA", view: "pre" };
+const S = { size: D.defaultSize || 8, pos: "BTN", scenario: "rfi", bucket: "LP",
+            mode: "action", hand: "AA", view: "pre" };
+
+// 人数 -> 位置集合；切人数时若当前位置不存在则回退到该人数的第一个行动位
+let POS = [], BY_ID = {}, POS_ORDER = [];
+function applySize(n) {
+  S.size = n;
+  POS = D.tables[n].positions;
+  BY_ID = Object.fromEntries(POS.map(p => [p.id, p]));
+  POS_ORDER = POS.slice().reverse();
+  if (!BY_ID[S.pos]) S.pos = POS[0].id;
+}
+function fairShare() { return 100 / S.size; }
 
 function handClass(i, j) {
   if (i === j) return RANKS[i] + RANKS[j];
@@ -465,8 +479,9 @@ function actionLabel(act) {
 
 function equityFor(cls) {
   const c = ctx();
-  if (S.scenario === "rfi") return HAND[cls].eq1;
-  return HAND[cls].eqVs[c.eqKey];
+  if (S.scenario === "rfi") return HAND[cls].eqByN[0];
+  const v = HAND[cls].eqVs[c.eqKey];
+  return v == null ? 0 : v;   // 数据缺失时兜底，避免整页崩溃
 }
 
 function bucketLabel(seat, b) {
@@ -490,6 +505,12 @@ function luminance(rgb) {
 
 /* ---------------- rail ---------------- */
 function renderRail() {
+  document.getElementById("h-pos").textContent = "位置 · 从大盲到" + POS_ORDER[POS_ORDER.length - 1].cn;
+  document.getElementById("sizeChip").textContent = "现金局 " + S.size + " 人桌";
+  const hint = document.getElementById("viewHint");
+  if (S.view === "pre") hint.textContent = `${S.size} 人桌 · ${POS.length} 个位置 · 胜率来自蒙特卡洛模拟`;
+  document.querySelectorAll("#sizeToggle [data-size]").forEach(b =>
+    b.setAttribute("aria-pressed", String(+b.dataset.size === S.size)));
   document.getElementById("rail").innerHTML = POS_ORDER.map(p => {
     const active = p.id === S.pos;
     const pct = p.rfi.na ? "—" : p.rfi.playPct.toFixed(1) + "%";
@@ -657,8 +678,13 @@ function renderDetail() {
   const actColor = act === "raise" ? "var(--raise1)" : act === "call" ? "var(--call1)" : "var(--dim)";
   const actBg = act === "raise" ? "rgba(240,112,90,.14)" : act === "call" ? "rgba(70,195,147,.14)" : "rgba(255,255,255,.05)";
   const vsBar = S.scenario === "vs"
-    ? barRow("对" + bucketLabel(S.pos, S.bucket) + "范围", h.eqVs[c.eqKey], 50, "linear-gradient(90deg,#a4552c,#f0a05a)")
+    ? barRow("对" + bucketLabel(S.pos, S.bucket) + "范围", h.eqVs[c.eqKey] == null ? 0 : h.eqVs[c.eqKey], 50, "linear-gradient(90deg,#a4552c,#f0a05a)")
     : "";
+  const fair = Math.round(fairShare() * 10) / 10;
+  // 2 人桌时「N 人底池」与单挑是同一个数，只显示一条
+  const potBar = S.size > 2
+    ? barRow(`${S.size} 人底池胜率 · 公平份额 ${fair}%`, h.eqByN[S.size - 2], fair,
+             "linear-gradient(90deg,#2c7f6f,#6fe3bd)") : "";
 
   box.innerHTML = `
     <div class="flex items-start justify-between gap-3">
@@ -670,13 +696,13 @@ function renderDetail() {
         ${act === "na" ? "—" : actionLabel(act)}</span>
     </div>
     <div class="mt-4">
-      ${barRow("单挑胜率 · 对 1 个随机手牌", h.eq1, 50, "linear-gradient(90deg,#3f7fa8,#7ec8f0)")}
-      ${barRow("8 人底池胜率 · 公平份额 12.5%", h.eq7, 12.5, "linear-gradient(90deg,#2c7f6f,#6fe3bd)")}
+      ${barRow("单挑胜率 · 对 1 个随机手牌", h.eqByN[0], 50, "linear-gradient(90deg,#3f7fa8,#7ec8f0)")}
+      ${potBar}
       ${vsBar}
     </div>
     <div class="mt-3 grid grid-cols-2 gap-2 border-t border-[var(--line)] pt-3 text-[11px]">
-      <div><div class="text-[var(--dim)]">单挑强度排名</div><div class="mt-0.5 text-[13px]">#${h.rank1} <span class="text-[10px] text-[var(--dim)]">/ 169</span></div></div>
-      <div><div class="text-[var(--dim)]">8 人桌排名</div><div class="mt-0.5 text-[13px]">#${h.rank7} <span class="text-[10px] text-[var(--dim)]">/ 169</span></div></div>
+      <div><div class="text-[var(--dim)]">单挑强度排名</div><div class="mt-0.5 text-[13px]">#${h.rankByN[0]} <span class="text-[10px] text-[var(--dim)]">/ 169</span></div></div>
+      <div><div class="text-[var(--dim)]">${S.size} 人桌排名</div><div class="mt-0.5 text-[13px]">#${h.rankByN[S.size - 2]} <span class="text-[10px] text-[var(--dim)]">/ 169</span></div></div>
     </div>
     <p class="mt-3 text-[11.5px] leading-relaxed text-[var(--dim)]">${
       act === "na" ? "大盲没有开池决策。" :
@@ -1238,19 +1264,23 @@ function readHash() {
     }
     return;
   }
-  const m = location.hash.match(/^#([A-Z+]+)(?:\/(rfi|vs))?(?:\/(EP|LP|SB))?(?:\/([AKQJT2-9]{2}[so]?))?$/);
+  // 可选人数段：#6/BTN/vs/LP/A5s；旧链接无人数段时默认 8。座位名可含数字（UTG+2）
+  const m = location.hash.match(/^#(?:(\d)\/)?([A-Z+][A-Z+0-9]*)(?:\/(rfi|vs))?(?:\/(EP|LP|SB))?(?:\/([AKQJT2-9]{2}[so]?))?$/);
   if (!m) return;
-  if (BY_ID[m[1]]) S.pos = m[1];
-  if (m[2]) S.scenario = m[2];
-  if (m[3]) S.bucket = m[3];
-  if (m[4] && HAND[m[4]]) S.hand = m[4];
+  applySize(m[1] ? +m[1] : (D.defaultSize || 8));
+  if (BY_ID[m[2]]) S.pos = m[2];
+  if (m[3]) S.scenario = m[3];
+  if (m[4]) S.bucket = m[4];
+  if (m[5] && HAND[m[5]]) S.hand = m[5];
   S.view = "pre";
 }
 function writeHash() {
   let h;
   if (S.view === "post") h = "#post/" + post.line + "/" + post.tex;
   else {
-    const bits = [S.pos];
+    const bits = [];
+    if (S.size !== (D.defaultSize || 8)) bits.push(String(S.size));
+    bits.push(S.pos);
     if (S.scenario !== "rfi") bits.push("vs", S.bucket);
     if (S.hand) bits.push(S.hand);
     h = "#" + bits.join("/");
@@ -1265,10 +1295,10 @@ function setView(v) {
   document.querySelectorAll("#modeToggle [data-view]").forEach(b =>
     b.setAttribute("aria-pressed", String(b.dataset.view === v)));
   document.getElementById("viewHint").textContent = v === "pre"
-    ? "169 手牌 × 8 位置 · 胜率来自蒙特卡洛模拟"
+    ? `${S.size} 人桌 · ${POS.length} 个位置 · 胜率来自蒙特卡洛模拟`
     : "4 条线 × 7 类牌面 · 三街策略基准";
   if (v === "post") renderPostAll();
-  else writeHash();
+  else renderAll();
 }
 
 function renderAll() {
@@ -1293,16 +1323,23 @@ document.querySelectorAll("#viewToggle [data-view]").forEach(b =>
 document.querySelectorAll("#modeToggle [data-view]").forEach(b =>
   b.addEventListener("click", () => setView(b.dataset.view)));
 
+document.querySelectorAll("#sizeToggle [data-size]").forEach(b =>
+  b.addEventListener("click", () => {
+    const n = +b.dataset.size;
+    if (n === S.size) return;
+    applySize(n);
+    normalize();
+    if (S.view === "post") renderPostAll();
+    else renderAll();
+  }));
+
 readHash();
-setView(S.view || "pre");
-if (S.view !== "post") { renderRail(); renderScenarios(); renderMatrix(); renderDetail(); renderSummary(); }
+applySize(S.size);            // readHash 已设定人数；再按当前人数校正位置
+setView(S.view || "pre");     // setView 内部会渲染对应视图
 window.addEventListener("hashchange", () => {
   readHash();
-  if (S.view === "post") setView("post");
-  else {
-    normalize(); setView("pre");
-    renderRail(); renderScenarios(); renderMatrix(); renderDetail(); renderSummary();
-  }
+  applySize(S.size);
+  setView(S.view === "post" ? "post" : "pre");
 });
 </script>
 </body>

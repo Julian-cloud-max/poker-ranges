@@ -217,7 +217,94 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
   ok(await page.$eval('#postTextures [data-tex="high-dry"]', e => e.classList.contains('is-active')),
      'classifier should select the classified texture');
 
-  // 13. hand follows the preflop selection (no manual hand entry)  // AA on K72 → 超对 (overpair), equity within eval7 tolerance, advice mentions value
+  // 12b. table size switching (2-9)
+  {
+    const jsClick = sel => page.evaluate(s => { document.querySelector(s).click(); }, sel);
+    // 上面分类器测试结束时还停在翻后视图；人数切换在翻后模式下不动位置栏，先切回翻前
+    await jsClick('#modeToggle [data-view="pre"]');
+    await wait(150);
+    const sizes = await page.$$eval('#sizeToggle [data-size]', els => els.map(e => e.dataset.size));
+    ok(sizes.join() === '2,3,4,5,6,7,8,9', 'size buttons should list 2..9, got ' + sizes);
+    ok(await page.$eval('#sizeToggle [data-size="8"]', e => e.getAttribute('aria-pressed')) === 'true',
+       'size 8 should be active by default');
+
+    // 6-max: 6 seats, BTN stays selected
+    await jsClick('#sizeToggle [data-size="6"]');
+    await wait(120);
+    let rail = await page.$$eval('#rail [data-pos]', els => els.map(e => e.dataset.pos).join(','));
+    ok(rail === 'BB,SB,BTN,CO,HJ,UTG', '6-max rail should be BB..UTG, got ' + rail);
+    ok((await page.$eval('#dPosCode', e => e.textContent.trim())) === 'BTN', 'BTN should stay selected at 6-max');
+    let pct = await page.$eval('#dPlayPct', e => parseFloat(e.textContent));
+    ok(pct > 40 && pct < 47, '6-max BTN open% should be 40-47, got ' + pct);
+    ok((await page.$eval('#viewHint', e => e.textContent)).includes('6 人桌'), 'hint should mention 6 人桌');
+
+    // 9-max: 9 seats incl UTG+2; UTG tightest
+    await jsClick('#sizeToggle [data-size="9"]');
+    await wait(120);
+    rail = await page.$$eval('#rail [data-pos]', els => els.map(e => e.dataset.pos).join(','));
+    ok(rail === 'BB,SB,BTN,CO,HJ,MP,UTG+2,UTG+1,UTG', '9-max rail got ' + rail);
+    await jsClick('#rail [data-pos="UTG"]');
+    await wait(100);
+    pct = await page.$eval('#dPlayPct', e => parseFloat(e.textContent));
+    ok(pct > 10.5 && pct < 13, '9-max UTG open% should be ~11.9, got ' + pct);
+
+    // fallback: UTG does not exist at 5-max -> fall back to HJ
+    await jsClick('#sizeToggle [data-size="5"]');
+    await wait(120);
+    ok((await page.$eval('#dPosCode', e => e.textContent.trim())) === 'HJ',
+       'switching 9->5 while on UTG should fall back to HJ');
+    rail = await page.$$eval('#rail [data-pos]', els => els.map(e => e.dataset.pos).join(','));
+    ok(rail === 'BB,SB,BTN,CO,HJ', '5-max rail got ' + rail);
+
+    // HU: 2 seats, BTN opens very wide, detail shows no separate pot-share row
+    await jsClick('#sizeToggle [data-size="2"]');
+    await wait(120);
+    rail = await page.$$eval('#rail [data-pos]', els => els.map(e => e.dataset.pos).join(','));
+    ok(rail === 'BB,BTN', 'HU rail got ' + rail);
+    await jsClick('#rail [data-pos="BTN"]');
+    await wait(100);
+    pct = await page.$eval('#dPlayPct', e => parseFloat(e.textContent));
+    ok(pct > 75, 'HU BTN open% should be >75, got ' + pct);
+    const detailTxt = await page.$eval('#dHand', e => e.textContent);
+    ok(!detailTxt.includes('2 人底池'), 'HU should not duplicate the heads-up bar');
+
+    // deep links with size segment
+    await page.goto(FILE + '#6/BTN', { waitUntil: 'networkidle0' });
+    await wait(400);
+    ok((await page.$eval('#sizeToggle [aria-pressed="true"]', e => e.dataset.size)) === '6', '#6/BTN should select size 6');
+    ok((await page.$eval('#dPosCode', e => e.textContent.trim())) === 'BTN', '#6/BTN should select BTN');
+    await page.goto(FILE + '#9/UTG+2', { waitUntil: 'networkidle0' });
+    await wait(400);
+    ok((await page.$eval('#dPosCode', e => e.textContent.trim())) === 'UTG+2', '#9/UTG+2 should select UTG+2');
+    await page.goto(FILE + '#BTN/vs/LP/A5s', { waitUntil: 'networkidle0' });
+    await wait(400);
+    ok((await page.$eval('#sizeToggle [aria-pressed="true"]', e => e.dataset.size)) === '8',
+       'legacy link without size should default to 8');
+
+    // postflop still works after size switching; hand bring intact
+    await jsClick('#modeToggle [data-view="post"]');
+    await wait(200);
+    const h = await page.evaluate(() => post.hand.map(c => c.r + '.' + c.s).join(','));
+    ok(h === '14.0,5.0', 'hand should still be brought (A5s) after size switches, got ' + h);
+    await jsClick('#modeToggle [data-view="pre"]');
+    await wait(150);
+
+    // restore default size for any checks that follow
+    await jsClick('#sizeToggle [data-size="8"]');
+    await wait(120);
+  }
+
+  // 13. hand follows the preflop selection (no manual hand entry)
+  // 自带初始化：刷新页面（默认手牌 AA），进翻后，点 K♦ 7♣ 2♠
+  await page.goto(FILE, { waitUntil: 'networkidle0' });
+  await page.evaluate(() => document.querySelector('#modeToggle [data-view="post"]').click());
+  await wait(250);
+  await page.evaluate(() => {
+    const pick = (rk, st) => document.querySelector(`#postDeck .dk[data-r="${rk}"][data-s="${st}"]`).click();
+    pick(13, 2); pick(7, 3); pick(2, 0);
+  });
+  await wait(300);
+  // AA on K72 → 超对 (overpair), equity within eval7 tolerance, advice mentions value
   const handPanel = await page.$eval('#postHandBody', e => e.textContent);
   ok(handPanel.includes('超对'), 'AA on K72 should be 超对, got: ' + handPanel.slice(0, 120));
   ok(handPanel.includes('价值'), 'role label should appear');
