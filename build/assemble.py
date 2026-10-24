@@ -21,6 +21,18 @@ def run_tailwind():
     print("tailwind ok")
 
 
+def git_build_id():
+    try:
+        r = subprocess.run(["git", "rev-parse", "--short", "HEAD"],
+                           capture_output=True, text=True, cwd=ROOT)
+        if r.returncode == 0:
+            return r.stdout.strip()
+    except Exception:
+        pass
+    import datetime
+    return datetime.date.today().isoformat()
+
+
 def main():
     os.makedirs(SITE, exist_ok=True)
     run_tailwind()
@@ -37,7 +49,8 @@ def main():
     html = (tpl
             .replace("/*__CSS__*/", css)
             .replace("/*__DATA__*/", merged)
-            .replace("__SITE_URL__", SITE_URL))
+            .replace("__SITE_URL__", SITE_URL)
+            .replace("__BUILD__", git_build_id()))
 
     out = os.path.join(SITE, "index.html")
     with open(out, "w", encoding="utf-8") as f:

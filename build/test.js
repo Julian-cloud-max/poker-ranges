@@ -169,6 +169,10 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
   ok(meta.ogImage.endsWith('og.png') && require('fs').existsSync(path.resolve(__dirname, '..', 'docs', 'og.png')),
      'og.png referenced but not present in docs/');
 
+  // build id resolves (no unreplaced placeholder)
+  const buildId = await page.$eval('#buildId', e => e.textContent.trim());
+  ok(/^[0-9a-f]{7,}$|^\d{4}-\d{2}-\d{2}$/.test(buildId), 'build id should resolve, got "' + buildId + '"');
+
   // 12. postflop decision tree
   await page.click('#modeToggle [data-view="post"]');
   await wait(150);
