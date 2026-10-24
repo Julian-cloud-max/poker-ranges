@@ -396,7 +396,204 @@ def resolve_vs(entry):
     return entry
 
 
+# ================================================================ 筹码档位
+BANDS_META = {
+    "deep":  {"label": "深码 ≥50BB",  "note": "标准深码现金局：开池 2.5BB，投机牌靠隐含赔率。"},
+    "mid":   {"label": "中码 25–50BB", "note": "由深码基准派生：前位去掉小对子和最低连张（隐含赔率不足），后位基本不变；3-bet 尺度加大。"},
+    "short": {"label": "短码 15–25BB", "note": "开池改为 min-raise（遇 3-bet 多弃）；面对开池只剩全下或弃牌——跟注列留空是刻意的：这个深度没有好的跟注空间。"},
+    "jam":   {"label": "极短码 ≤15BB", "note": "纯 push/fold（Nash 均衡，来自 holdemmath-data）。多人桌采用单跟注近似求解，全下范围比部分传统表偏宽；比较请看 EV 而非逐手牌。"},
+}
+
+# 座位分类（按身后人数），中/短码派生用
+def seat_class(behind):
+    if behind >= 5: return "EP"
+    if behind == 4: return "HJ"
+    if behind == 3: return "CO"
+    if behind == 2: return "BTN"
+    if behind == 1: return "SB"
+    return "BB"
+
+# 中码：从深码基准剔除的牌（按类别）
+MID_TRIM_RFI = {
+    "EP": ["22-44", "54s", "65s"],
+    "HJ": ["22-33", "54s", "64s"],
+    "CO": ["22", "54s", "64s"],
+    "BTN": ["32s", "42s", "43s", "52s", "53s"],
+    "SB": ["32s", "42s", "43s", "52s", "53s"],
+    "BB": [],
+}
+MID_TRIM_CALL = ["54s", "64s", "53s", "43s", "32s", "63s", "74s"]
+
+# 短码 15–25BB：开池（min-raise）范围，按类别
+SHORT_RFI = {
+    "EP":  ["77+", "ATs+", "KTs+", "QTs+", "JTs", "T9s", "AJo+", "KQo"],
+    "HJ":  ["55+", "A9s+", "KTs+", "Q9s+", "J9s+", "T9s", "98s", "87s", "ATo+", "KJo+"],
+    "CO":  ["44+", "A7s+", "A5s", "K9s+", "Q9s+", "J9s+", "T8s+", "98s", "87s",
+            "A9o+", "KTo+", "QTo+", "JTo"],
+    "BTN": ["22+", "A2s+", "K7s+", "Q8s+", "J8s+", "T8s+", "97s+", "87s", "76s",
+            "A5o+", "K8o+", "Q9o+", "JTo", "T9o"],
+    "SB":  ["22+", "A2s+", "K5s+", "Q7s+", "J7s+", "T7s+", "96s+", "86s+", "76s",
+            "65s", "A6o+", "K8o+", "Q9o+", "J9o+", "T9o"],
+}
+
+# 短码：面对开池的全下（reshove）范围，[防守类别][开池者档]
+SHORT_RESHOVE = {
+    ("EP", "EP"):  ["99+", "AQs+", "AKo", "A5s-A3s", "KQs"],
+    ("EP", "LP"):  ["88+", "AJs+", "AQo+", "A5s-A2s", "KQs", "KJs", "QJs", "JTs", "T9s"],
+    ("HJ", "EP"):  ["88+", "AQs+", "AKo", "A5s-A3s", "KQs", "KJs"],
+    ("HJ", "LP"):  ["77+", "ATs+", "AQo+", "A5s-A2s", "KQs", "KJs", "KTs", "QJs",
+                    "JTs", "T9s", "98s"],
+    ("CO", "EP"):  ["77+", "ATs+", "AQo+", "A5s-A3s", "KQs", "KJs"],
+    ("CO", "LP"):  ["55+", "ATs+", "ATo+", "A5s-A2s", "KQs", "KJs", "KTs", "QJs",
+                    "QTs", "JTs", "T9s", "98s"],
+    ("BTN", "EP"): ["77+", "ATs+", "AQo+", "A5s-A3s", "KQs", "KJs", "QJs"],
+    ("BTN", "LP"): ["66+", "A9s+", "ATo+", "A5s-A2s", "KQs", "KJs", "KTs", "QJs",
+                    "QTs", "JTs", "T9s", "98s"],
+    ("SB", "EP"):  ["77+", "ATs+", "AQo+", "A5s-A2s", "KQs"],
+    ("SB", "LP"):  ["55+", "A9s+", "ATo+", "A5s-A2s", "KQs", "KJs", "KTs", "QJs",
+                    "JTs", "T9s", "98s", "87s"],
+    ("BB", "EP"):  ["66+", "ATs+", "AQo+", "A5s-A2s", "KQs", "KJs"],
+    ("BB", "LP"):  ["44+", "A8s+", "ATo+", "A4s-A2s", "K9s+", "Q9s+", "JTs", "T9s",
+                    "98s", "KQo", "KJo"],
+    ("BB", "SB"):  ["33+", "A5s+", "A4s-A2s", "K8s+", "Q8s+", "J9s+", "T9s", "98s",
+                    "87s", "A9o+", "KTo+", "QTo+", "JTo", "T9o"],
+}
+
+# 极短码多人表：PokerCoaching 公开无前注 push/fold 基准（Jonathan Little），
+# 座位类别按身后人数（8=UTG … 1=SB）。10BB 参考：UTG 9.4% / BTN 33.0% / SB 58.4%。
+JAM_PC = {
+    "4": {
+        "UTG":  ["33+", "A3s+", "A9o+", "K9s+", "KJo+", "Q9s+", "J9s+", "T9s"],
+        "UTG1": ["33+", "A2s+", "A8o+", "K9s+", "KJo+", "Q9s+", "QJo", "J9s+", "T9s"],
+        "UTG2": ["33+", "A2s+", "A7o+", "A5o", "K7s+", "KTo+", "Q9s+", "QJo", "J9s+", "T9s"],
+        "LJ":   ["22+", "A2s+", "A4o+", "K6s+", "KTo+", "Q9s+", "QTo+", "J9s+", "T9s"],
+        "HJ":   ["22+", "A2s+", "A2o+", "K5s+", "K9o+", "Q8s+", "QTo+", "J8s+", "JTo", "T9s"],
+        "CO":   ["22+", "A2s+", "A2o+", "K2s+", "K7o+", "Q6s+", "Q9o+", "J8s+", "JTo", "T8s+", "98s"],
+        "BTN":  ["22+", "A2s+", "A2o+", "K2s+", "K4o+", "Q4s+", "Q8o+", "J7s+", "J9o+", "T7s+", "T9o", "98s"],
+        "SB":   ["22+", "A2s+", "A2o+", "K2s+", "K2o+", "Q2s+", "Q3o+", "J2s+", "J4o+",
+                 "T2s+", "T4o+", "92s+", "95o+", "83s+", "85o+", "73s+", "75o+",
+                 "63s+", "53s+", "43s"],
+    },
+    "6": {
+        "UTG":  ["44+", "A8s+", "A5s", "ATo+", "K9s+", "KQo", "Q9s+", "JTs", "T9s"],
+        "UTG1": ["33+", "A4s+", "ATo+", "K9s+", "KQo", "Q9s+", "J9s+", "T9s"],
+        "UTG2": ["22+", "A3s+", "A9o+", "K9s+", "KJo+", "Q9s+", "J9s+", "T9s", "98s"],
+        "LJ":   ["22+", "A2s+", "A7o+", "K9s+", "KJo+", "Q9s+", "QJo", "J9s+", "T8s+", "98s"],
+        "HJ":   ["22+", "A2s+", "A4o+", "K7s+", "KTo+", "Q9s+", "QJo", "J8s+", "T8s+", "98s", "87s"],
+        "CO":   ["22+", "A2s+", "A2o+", "K5s+", "K9o+", "Q8s+", "QTo+", "J8s+", "JTo",
+                 "T8s+", "98s", "87s", "76s"],
+        "BTN":  ["22+", "A2s+", "A2o+", "K2s+", "K7o+", "Q6s+", "Q9o+", "J7s+", "JTo",
+                 "T7s+", "97s+", "86s+", "76s", "65s"],
+        "SB":   ["22+", "A2s+", "A2o+", "K2s+", "K2o+", "Q2s+", "Q5o+", "J2s+", "J5o+",
+                 "T2s+", "T7o+", "95s+", "97o+", "84s+", "86o+", "74s+", "76o",
+                 "63s+", "53s+", "43s"],
+    },
+    "8": {
+        "UTG":  ["55+", "A9s+", "AJo+", "KTs+", "KQo", "QTs+", "JTs"],
+        "UTG1": ["44+", "A8s+", "A5s", "AJo+", "K9s+", "KQo", "QTs+", "J9s+", "T9s"],
+        "UTG2": ["33+", "A7s+", "A5s", "ATo+", "K9s+", "KQo", "Q9s+", "J9s+", "T9s"],
+        "LJ":   ["22+", "A3s+", "A9o+", "K9s+", "KJo+", "Q9s+", "J9s+", "T9s", "98s"],
+        "HJ":   ["22+", "A2s+", "A8o+", "K8s+", "KJo+", "Q9s+", "QJo", "J8s+", "T8s+", "98s", "87s"],
+        "CO":   ["22+", "A2s+", "A3o+", "K7s+", "KTo+", "Q8s+", "QJo", "J8s+", "JTo",
+                 "T8s+", "98s", "87s"],
+        "BTN":  ["22+", "A2s+", "A2o+", "K4s+", "K9o+", "Q8s+", "QTo+", "J7s+", "JTo",
+                 "T7s+", "97s+", "86s+", "76s", "65s"],
+        "SB":   ["22+", "A2s+", "A2o+", "K2s+", "K2o+", "Q2s+", "Q5o+", "J2s+", "J7o+",
+                 "T4s+", "T7o+", "95s+", "97o+", "85s+", "87o", "74s+", "76o",
+                 "64s+", "53s+"],
+    },
+    "10": {
+        "UTG":  ["88+", "66", "A9s+", "A5s-A4s", "AQo+", "KTs+", "QTs+", "JTs"],
+        "UTG1": ["55+", "A9s+", "A5s", "AJo+", "KTs+", "QTs+", "JTs"],
+        "UTG2": ["44+", "A8s+", "A5s", "AJo+", "K9s+", "KQo", "QTs+", "J9s+", "T9s"],
+        "LJ":   ["33+", "A7s+", "A5s", "ATo+", "K9s+", "KJo+", "Q9s+", "J9s+", "T9s"],
+        "HJ":   ["22+", "A3s+", "A9o+", "K9s+", "KJo+", "Q9s+", "QJo", "J9s+", "T8s+", "98s"],
+        "CO":   ["22+", "A2s+", "A7o+", "A5o", "K8s+", "KTo+", "Q9s+", "QJo",
+                 "J8s+", "JTo", "T8s+", "98s", "87s"],
+        "BTN":  ["22+", "A2s+", "A2o+", "K5s+", "KTo+", "Q8s+", "QTo+", "J8s+", "JTo",
+                 "T7s+", "97s+", "86s+", "76s", "65s"],
+        "SB":   ["22+", "A2s+", "A2o+", "K2s+", "K2o+", "Q2s+", "Q7o+", "J3s+", "J8o+",
+                 "T4s+", "T8o+", "95s+", "97o+", "84s+", "87o", "74s+", "76o",
+                 "64s+", "53s+", "43s"],
+    },
+    "12": {
+        "UTG":  ["99+", "ATs+", "A5s-A3s", "AQo+", "KJs+", "QJs"],
+        "UTG1": ["88+", "66", "A9s+", "A5s-A4s", "AQo+", "KTs+", "QTs+", "JTs"],
+        "UTG2": ["55+", "A9s+", "A5s", "AJo+", "KTs+", "QTs+", "JTs"],
+        "LJ":   ["44+", "A8s+", "A5s", "AJo+", "K9s+", "KQo", "Q9s+", "J9s+", "T9s"],
+        "HJ":   ["33+", "A7s+", "A5s-A4s", "ATo+", "K9s+", "KJo+", "Q9s+", "J9s+", "T9s"],
+        "CO":   ["22+", "A2s+", "A8o+", "K8s+", "KJo+", "Q8s+", "QJo", "J8s+", "JTo",
+                 "T8s+", "98s"],
+        "BTN":  ["22+", "A2s+", "A2o+", "K6s+", "KTo+", "Q8s+", "QTo+", "J8s+", "JTo",
+                 "T7s+", "97s+", "87s", "76s"],
+        "SB":   ["22+", "A2s+", "A2o+", "K2s+", "K3o+", "Q2s+", "Q8o+", "J4s+", "J8o+",
+                 "T6s+", "T8o+", "95s+", "98o", "85s+", "87o", "74s+", "64s+", "53s+"],
+    },
+    "15": {
+        "UTG":  ["TT+", "ATs+", "A7s", "A5s-A3s", "AQo+", "KQs"],
+        "UTG1": ["TT+", "66", "ATs+", "A5s-A3s", "AQo+", "KJs+", "QJs"],
+        "UTG2": ["88+", "66", "ATs+", "A5s-A3s", "AQo+", "KTs+", "QTs+"],
+        "LJ":   ["55+", "A9s+", "A5s", "AJo+", "KTs+", "QTs+", "JTs"],
+        "HJ":   ["44+", "A8s+", "A5s", "AJo+", "K9s+", "KQo", "Q9s+", "J9s+", "T9s"],
+        "CO":   ["22+", "A3s+", "ATo+", "K9s+", "KJo+", "Q9s+", "QJo", "J9s+", "T9s", "98s"],
+        "BTN":  ["22+", "A2s+", "A5o+", "K7s+", "KTo+", "Q8s+", "QTo+", "J8s+", "JTo",
+                 "T8s+", "98s", "87s"],
+        "SB":   ["22+", "A2s+", "A2o+", "K2s+", "K6o+", "Q4s+", "Q9o+", "J6s+", "J9o+",
+                 "T6s+", "T8o+", "96s+", "98o", "85s+", "75s+", "64s+", "54s"],
+    },
+}
+# 人数 → 每个座位对应的 JAM_PC 类别（按身后人数）
+JAM_CLASS = {
+    9: {"UTG": "UTG", "UTG+1": "UTG1", "UTG+2": "UTG2", "MP": "LJ", "HJ": "HJ",
+        "CO": "CO", "BTN": "BTN", "SB": "SB", "BB": "BB"},
+    8: {"UTG": "UTG1", "UTG+1": "UTG2", "MP": "LJ", "HJ": "HJ", "CO": "CO",
+        "BTN": "BTN", "SB": "SB", "BB": "BB"},
+    7: {"UTG": "UTG2", "MP": "LJ", "HJ": "HJ", "CO": "CO", "BTN": "BTN",
+        "SB": "SB", "BB": "BB"},
+    6: {"UTG": "LJ", "HJ": "HJ", "CO": "CO", "BTN": "BTN", "SB": "SB", "BB": "BB"},
+    5: {"HJ": "HJ", "CO": "CO", "BTN": "BTN", "SB": "SB", "BB": "BB"},
+    4: {"CO": "CO", "BTN": "BTN", "SB": "SB", "BB": "BB"},
+    3: {"BTN": "BTN", "SB": "SB", "BB": "BB"},
+    2: {"BTN": "HUSB", "BB": "HUBB"},
+}
+
 COMBOS = {c: combos_of(c) for c in all_classes()}
+
+
+def band_positions(size, seats, rfi_map, vs_map):
+    """按人数组装 positions；rfi_map/vs_map 给出每座位的内容。"""
+    positions = []
+    for i, seat in enumerate(seats):
+        behind = len(seats) - 1 - i
+        notes = NOTE_OVERRIDE.get(size, {}).get(seat) or NOTES[seat]
+        entry = {"id": seat, "cn": CN[seat], "behind": behind,
+                 "notes": {"rfi": notes[0], "vs": notes[1]}, "vs": {}}
+        spec = rfi_map[seat]
+        s = spec["set"]
+        entry["rfi"] = {
+            "na": seat == "BB", "raise": sorted(s), "call": [],
+            "playPct": pct(s), "raisePct": pct(s), "callPct": 0.0,
+            "label": spec.get("label", "加注"), "callLabel": "—",
+            "tokens": spec.get("tokens", []),
+        }
+        for bucket in ("EP", "LP", "SB"):
+            info = vs_map.get(seat, {}).get(bucket)
+            if not info:
+                continue
+            t3, cl = info["three"], info["call"]
+            entry["vs"][bucket] = {
+                "raise": sorted(t3), "call": sorted(cl),
+                "raisePct": pct(t3), "callPct": pct(cl),
+                "playPct": pct(t3 | cl),
+                "label": info.get("label", "3-Bet"),
+                "callLabel": info.get("callLabel", "跟注"),
+                "raiseTokens": info["threeTokens"], "callTokens": info["callTokens"],
+                "eqKey": info["eqKey"],
+                "openers": info["openers"],
+                "openerPct": info.get("openerPct", info["pct"]),
+            }
+        positions.append(entry)
+    return positions
 
 
 def build():
@@ -421,107 +618,176 @@ def build():
         for i, c in enumerate(order):
             rank_by_n[c][n] = i + 1
 
-    # ---- 每个人数的 RFI 集合
-    rfi_sets = {}
+    # ---- 深码：现有逻辑
+    deep_rfi_sets, deep_vs_ranges = {}, {}
     for size, seats in TABLES.items():
-        rfi_sets[size] = {}
+        deep_rfi_sets[size] = {}
         for seat in seats:
-            if seat == "BB":
-                rfi_sets[size][seat] = set()
-                continue
             src = RFI_TABLES.get(size, {}).get(seat)
             if src is None:
-                src = RFI8[seat]  # 8 人基准表自身
-            rfi_sets[size][seat] = expand(resolve_rfi(src))
-
-    # ---- 每个人数每座位面对的开池者分组与 vs 范围
-    vs_ranges = {}   # (size, seat, bucket) -> info
-    vs_tasks = []
-    for size, seats in TABLES.items():
+                src = RFI8[seat] if seat in RFI8 else []
+            deep_rfi_sets[size][seat] = set() if seat == "BB" else expand(resolve_rfi(src))
         table_vs = VS_TABLES.get(size, {})
         for i, seat in enumerate(seats):
             for bucket in ("EP", "LP", "SB"):
                 eligible = [s for s in seats[:i]
                             if s in BUCKET_SEATS[size].get(bucket, [])]
-                if not eligible:
-                    continue
                 entry = table_vs.get(seat, {}).get(bucket)
-                if entry is None:
+                if not eligible or entry is None:
                     continue
                 three, call_t = resolve_vs(entry)
                 t3 = expand(three)
                 cl = expand(call_t) - t3
                 u = set()
                 for s in eligible:
-                    u |= rfi_sets[size][s]
-                key = f"{size}|{seat}|{bucket}"
-                combos_strs = [(a, b) for h in u for a, b in COMBOS[h]]
-                vs_ranges[(size, seat, bucket)] = {
-                    "openers": eligible, "hands": u, "pct": pct(u),
-                    "combos": combos_strs, "three": t3, "call": cl,
-                    "threeTokens": three, "callTokens": call_t,
+                    u |= deep_rfi_sets[size][s]
+                deep_vs_ranges[(size, seat, bucket)] = {
+                    "openers": eligible, "pct": pct(u),
+                    "combos": [(a, b) for h in u for a, b in COMBOS[h]],
+                    "three": t3, "call": cl, "threeTokens": three, "callTokens": call_t,
+                    "eqKey": f"{size}|{seat}|{bucket}",
                 }
-                vs_tasks += [(c, key, combos_strs) for c in classes]
+
+    vs_tasks = []
+
+    # ---- 深码 positions
+    deep_tables = {}
+    for size, seats in TABLES.items():
+        rfi_map, vs_map = {}, {}
+        for seat in seats:
+            tokens = resolve_rfi(RFI_TABLES.get(size, {}).get(seat) or RFI8.get(seat, []))
+            rfi_map[seat] = {"set": deep_rfi_sets[size][seat], "tokens": tokens}
+        for (sz, seat, bucket), info in deep_vs_ranges.items():
+            if sz != size:
+                continue
+            vs_map.setdefault(seat, {})[bucket] = info
+        deep_tables[str(size)] = {"positions": band_positions(size, seats, rfi_map, vs_map)}
+
+    # ---- 中码：深码剔除投机牌；对范围胜率沿用深码键（开池范围只微调，差值 <1 个点）
+    mid_tables = {}
+    for size, seats in TABLES.items():
+        rfi_map, vs_map = {}, {}
+        for i, seat in enumerate(seats):
+            cls = seat_class(len(seats) - 1 - i)
+            base = deep_rfi_sets[size][seat]
+            s = (set(base) - expand(MID_TRIM_RFI.get(cls, []))) if seat != "BB" else set()
+            rfi_map[seat] = {"set": s,
+                             "tokens": resolve_rfi(RFI_TABLES.get(size, {}).get(seat)
+                                                   or RFI8.get(seat, []))}
+        for seat in seats:
+            for bucket in ("EP", "LP", "SB"):
+                info = deep_vs_ranges.get((size, seat, bucket))
+                if not info:
+                    continue
+                call = info["call"] - expand(MID_TRIM_CALL)
+                vs_map.setdefault(seat, {})[bucket] = dict(info, call=call)
+        mid_tables[str(size)] = {"positions": band_positions(size, seats, rfi_map, vs_map)}
+
+    # ---- 短码：min-raise 开池 + reshove 全下；跟注刻意留空
+    short_tables = {}
+    for size, seats in TABLES.items():
+        rfi_map, vs_map = {}, {}
+        for i, seat in enumerate(seats):
+            cls = seat_class(len(seats) - 1 - i)
+            s = set() if seat == "BB" else expand(SHORT_RFI.get(cls, []))
+            rfi_map[seat] = {"set": s, "tokens": SHORT_RFI.get(cls, []),
+                             "label": "min-raise"}
+        for i, seat in enumerate(seats):
+            mycls = seat_class(len(seats) - 1 - i)
+            for bucket in ("EP", "LP", "SB"):
+                eligible = [s for s in seats[:i]
+                            if s in BUCKET_SEATS[size].get(bucket, [])]
+                tokens = SHORT_RESHOVE.get((mycls, bucket))
+                if not eligible or tokens is None:
+                    continue
+                t3 = expand(tokens)
+                u = set()
+                for s in eligible:
+                    u |= rfi_map[s]["set"]
+                key = f"short|{size}|{seat}|{bucket}"
+                info = {
+                    "openers": eligible, "pct": pct(u),
+                    "combos": [(a, b) for h in u for a, b in COMBOS[h]],
+                    "three": t3, "call": set(),
+                    "threeTokens": tokens, "callTokens": [],
+                    "eqKey": key, "label": "全下 (reshove)", "callLabel": "—",
+                }
+                vs_map.setdefault(seat, {})[bucket] = info
+                vs_tasks += [(c, key, info["combos"]) for c in classes]
+        short_tables[str(size)] = {"positions": band_positions(size, seats, rfi_map, vs_map)}
+
+    # ---- 极短码：多人 = PokerCoaching 无前注基准；单挑 = holdemmath 近精确均衡
+    pf = json.load(open(os.path.join(HERE, "pushfold.json"), encoding="utf-8"))
+    jam_out = {
+        "depths": pf["depths"],
+        "pc": {d: {cls: sorted(expand(toks)) for cls, toks in seats.items()}
+               for d, seats in JAM_PC.items()},
+        "pcPct": {d: {cls: pct(expand(toks)) for cls, toks in seats.items()}
+                  for d, seats in JAM_PC.items()},
+        "hu": pf["hu"],
+        "classMap": {str(k): v for k, v in JAM_CLASS.items()},
+    }
+    for d in JAM_PC:
+        for cls, toks in JAM_PC[d].items():
+            if cls == "SB" or cls[0] == "U" or cls in ("LJ", "HJ", "CO", "BTN"):
+                combos = [(a, b) for h in expand(toks) for a, b in COMBOS[h]]
+                vs_tasks += [(c, f"jam|pc|{cls}|{d}", combos) for c in classes]
+    for d in pf["depths"]:
+        combos = [(a, b) for h in pf["hu"][str(d)]["SB"]["h"] for a, b in COMBOS[h]]
+        vs_tasks += [(c, f"jam|huSB|{d}", combos) for c in classes]
+
+    # ---- 深码场景的蒙特卡洛
+    for info in deep_vs_ranges.values():
+        vs_tasks += [(c, info["eqKey"], info["combos"]) for c in classes]
 
     eq_vs = {c: {} for c in classes}
+    vs_cache_path = os.path.join(HERE, "vs_cache.json")
+    vs_cache = {}
+    if os.path.exists(vs_cache_path):
+        vs_cache = json.load(open(vs_cache_path, encoding="utf-8"))
+    need_tasks = [t for t in vs_tasks
+                  if not (t[1] in vs_cache and t[0] in vs_cache[t[1]])]
     if not FAST:
-        with Pool(min(20, os.cpu_count() or 4)) as p:
-            for c, key, v in p.map(task_vs_range, vs_tasks, chunksize=2):
-                eq_vs[c][key] = round(100 * v, 1)
+        if need_tasks:
+            with Pool(min(20, os.cpu_count() or 4)) as p:
+                for c, key, v in p.map(task_vs_range, need_tasks, chunksize=2):
+                    vs_cache.setdefault(key, {})[c] = round(100 * v, 1)
+            json.dump(vs_cache, open(vs_cache_path, "w", encoding="utf-8"))
+        for c in classes:
+            eq_vs[c] = {k: vals[c] for k, vals in vs_cache.items() if c in vals}
 
     hands = {}
     for c in classes:
-        hands[c] = {
-            "eqByN": eq_by_n[c],
-            "rankByN": rank_by_n[c],
-            "combos": len(COMBOS[c]),
-            "eqVs": eq_vs[c],
-        }
+        hands[c] = {"eqByN": eq_by_n[c], "rankByN": rank_by_n[c],
+                    "combos": len(COMBOS[c]), "eqVs": eq_vs[c]}
 
-    # ---- 组装每个人数的 positions
-    tables_out = {}
-    for size, seats in TABLES.items():
-        positions = []
-        for i, seat in enumerate(seats):
-            notes = NOTE_OVERRIDE.get(size, {}).get(seat) or NOTES[seat]
-            entry = {"id": seat, "cn": CN[seat], "behind": len(seats) - 1 - i,
-                     "notes": {"rfi": notes[0], "vs": notes[1]}, "vs": {}}
-            s = rfi_sets[size][seat]
-            entry["rfi"] = {
-                "na": seat == "BB", "raise": sorted(s), "call": [],
-                "playPct": pct(s), "raisePct": pct(s), "callPct": 0.0,
-                "label": "加注", "callLabel": "—",
-                "tokens": resolve_rfi(RFI_TABLES.get(size, {}).get(seat) or RFI8.get(seat, [])),
-            }
-            for bucket in ("EP", "LP", "SB"):
-                info = vs_ranges.get((size, seat, bucket))
-                if not info:
-                    continue
-                entry["vs"][bucket] = {
-                    "raise": sorted(info["three"]), "call": sorted(info["call"]),
-                    "raisePct": pct(info["three"]), "callPct": pct(info["call"]),
-                    "playPct": pct(info["three"] | info["call"]),
-                    "label": "3-Bet", "callLabel": "跟注",
-                    "raiseTokens": info["threeTokens"],
-                    "callTokens": info["callTokens"],
-                    "eqKey": f"{size}|{seat}|{bucket}",
-                    "openers": info["openers"], "openerPct": info["pct"],
-                }
-            positions.append(entry)
-        tables_out[str(size)] = {"positions": positions}
-
-    out = {"hands": hands, "tables": tables_out, "defaultSize": 8}
+    out = {
+        "hands": hands, "defaultSize": 8,
+        "bands": {
+            "deep": dict(BANDS_META["deep"], tables=deep_tables),
+            "mid": dict(BANDS_META["mid"], tables=mid_tables),
+            "short": dict(BANDS_META["short"], tables=short_tables),
+            "jam": dict(BANDS_META["jam"], **jam_out),
+        },
+    }
     with open(os.path.join(HERE, "data.json"), "w", encoding="utf-8") as f:
         json.dump(out, f, ensure_ascii=False, separators=(",", ":"))
     print("data.json", os.path.getsize(os.path.join(HERE, "data.json")), "bytes",
-          "(FAST)" if FAST else "")
+          "(FAST)" if FAST else "", "| vs 场景:", len(vs_tasks) // len(classes))
 
-    for size in sorted(TABLES):
-        print(f"--- {size} 人桌 ---")
-        for p in tables_out[str(size)]["positions"]:
-            r = "n/a" if p["rfi"]["na"] else f"{p['rfi']['playPct']}%"
-            vs = {b: (v["raisePct"], v["callPct"]) for b, v in p["vs"].items()}
-            print(f"  {p['id']:6s} rfi {r:>6s} vs {vs}")
+    for band in ("deep", "mid", "short"):
+        print(f"--- {band} ---")
+        for size in sorted(TABLES):
+            ps = out["bands"][band]["tables"][str(size)]["positions"]
+            line = "  ".join(f"{p['id']}:{p['rfi']['playPct'] if not p['rfi']['na'] else 'na'}"
+                             for p in ps)
+            print(f"  {size}ren  {line}")
+    print("--- jam 全下% ---")
+    for d in ("4", "10", "15"):
+        print(f"  {d}bb  " + "  ".join(f"{k}:{v}" for k, v in jam_out["pcPct"][d].items()))
+    print("  hu  " + "  ".join(
+        f"{d}bb:SB {pf['hu'][str(d)]['SB']['p']}/BBcall {pf['hu'][str(d)]['BB|SB']['p']}"
+        for d in pf["depths"]))
 
 
 if __name__ == "__main__":

@@ -294,6 +294,113 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
     await wait(120);
   }
 
+  // 12c. stack bands: deep / mid / short / jam
+  {
+    const jsClick = sel => page.evaluate(s2 => { document.querySelector(s2).click(); }, sel);
+    // 默认 deep；band 按钮存在 4 个
+    const bands = await page.$$eval('#bandToggle [data-band]', els => els.map(e => e.dataset.band));
+    ok(bands.join() === 'deep,mid,short,jam', 'band buttons: ' + bands);
+
+    // 中码：8 人 UTG 加注标签仍为 加注，范围比深码略紧（22-44 已被剔除的座位存在）
+    await jsClick('#bandToggle [data-band="mid"]');
+    await wait(150);
+    let pctMid = await page.evaluate(() => {
+      const p = POS.find(x => x.id === 'UTG');
+      return { label: p.rfi.label, pct: p.rfi.playPct, note: document.getElementById('bandNote').textContent.slice(0, 10) };
+    });
+    ok(pctMid.label === '加注', 'mid UTG label ' + pctMid.label);
+    ok((await page.$eval('#sizeChip', e => e.textContent)).includes('中码'), 'chip should show 中码');
+
+    // 短码：标签 min-raise；UTG(EP类) 范围明显收紧；面对开池动作是全下 reshove 且无跟注
+    await jsClick('#bandToggle [data-band="short"]');
+    await wait(150);
+    const shortInfo = await page.evaluate(() => {
+      const p = POS.find(x => x.id === 'UTG');
+      const btn = POS.find(x => x.id === 'BTN');
+      const vsKeys = Object.keys(btn.vs);
+      const v = btn.vs[vsKeys[0]];
+      return { utgLabel: p.rfi.label, utgPct: p.rfi.playPct, vsLabel: v.label,
+               vsCall: v.callPct, chip: document.getElementById('sizeChip').textContent };
+    });
+    ok(shortInfo.utgLabel === 'min-raise', 'short UTG label ' + shortInfo.utgLabel);
+    ok(shortInfo.utgPct < 12, 'short UTG pct should be ~10.6, got ' + shortInfo.utgPct);
+    ok(shortInfo.vsLabel.includes('全下'), 'short vs label ' + shortInfo.vsLabel);
+    ok(shortInfo.vsCall === 0, 'short call% should be 0, got ' + shortInfo.vsCall);
+    ok(shortInfo.chip.includes('短码'), 'chip ' + shortInfo.chip);
+
+    // 极短码：BB 步进器出现；切到 UTG 看全下范围；10BB UTG ≈ 9.4%
+    await jsClick('#bandToggle [data-band="jam"]');
+    await wait(200);
+    const depthVisible = await page.$eval('#depthWrap', e => !e.classList.contains('hidden'));
+    ok(depthVisible, 'depth stepper should be visible in jam band');
+    await jsClick('#rail [data-pos="UTG"]');
+    await wait(120);
+    const jamUtg = await page.evaluate(() => {
+      const p = POS.find(x => x.id === 'UTG');
+      return { label: p.rfi.label, pct: p.rfi.playPct, tab: document.querySelector('#scenarioTabs [aria-selected="true"]').textContent };
+    });
+    ok(jamUtg.label === '全下', 'jam UTG label ' + jamUtg.label);
+    ok(jamUtg.pct > 8 && jamUtg.pct < 11, 'jam 10bb UTG ~9.4%, got ' + jamUtg.pct);
+
+    // BB 深度切换：UTG 全下 4bb 比 15bb 宽
+    await jsClick('#depthToggle [data-depth="4"]');
+    await wait(150);
+    const jam4 = await page.evaluate(() => POS.find(x => x.id === 'UTG').rfi.playPct);
+    await jsClick('#depthToggle [data-depth="15"]');
+    await wait(150);
+    const jam15 = await page.evaluate(() => POS.find(x => x.id === 'UTG').rfi.playPct);
+    ok(jam4 > jam15 + 5, `jam UTG 4bb(${jam4}) should be wider than 15bb(${jam15})`);
+
+    // 面对全下（BB）：跟注范围由 胜率≥底池赔率 推导；AA 必跟、72o 必弃；面板出现「需要胜率」
+    await jsClick('#rail [data-pos="BB"]');
+    await wait(150);
+    await page.evaluate(() => {
+      const t = [...document.querySelectorAll('#scenarioTabs [data-sc]')].find(x => x.dataset.sc === 'vs');
+      if (t && !t.disabled) t.click();
+    });
+    await wait(150);
+    const callInfo = await page.evaluate(() => {
+      const keys = Object.keys(POS.find(x => x.id === 'BB').vs);
+      if (!keys.length) return null;
+      S.bucket = keys[0];
+      renderAll();
+      const v = POS.find(x => x.id === 'BB').vs[keys[0]];
+      const aa = v.call.includes('AA'), o72 = v.call.includes('72o');
+      return { keys, needed: v.needed, aa, o72, callPct: v.callPct,
+               verdict: document.getElementById('dHand').textContent.includes('需要胜率') };
+    });
+    ok(callInfo && callInfo.keys.length >= 1, 'BB should have vs-jam entries');
+    ok(callInfo.aa && !callInfo.o72, 'AA must call, 72o must fold vs jam');
+    ok(callInfo.needed > 30 && callInfo.needed < 50, 'needed% should be 30-50, got ' + callInfo.needed);
+    ok(callInfo.verdict, 'detail panel should show 需要/拥有 verdict');
+
+    // 单挑 jam：BTN=SB 全下 45.4%@10bb
+    await jsClick('#depthToggle [data-depth="10"]');
+    await jsClick('#sizeToggle [data-size="2"]');
+    await wait(200);
+    const huJam = await page.evaluate(() => POS.find(x => x.id === 'BTN').rfi.playPct);
+    ok(huJam > 40 && huJam < 50, 'HU jam BTN(=SB) 10bb ~45.4%, got ' + huJam);
+
+    // 深链接：#8/jam/4bb/UTG 与 #6/short/CO；旧 #BTN/vs/LP/A5s 仍默认深码
+    await page.goto(FILE + '#8/jam/4bb/UTG', { waitUntil: 'networkidle0' });
+    await wait(400);
+    const dl1 = await page.evaluate(() => ({ band: S.band, depth: S.depth, pos: S.pos, pct: POS.find(x => x.id === 'UTG').rfi.playPct }));
+    ok(dl1.band === 'jam' && dl1.depth === 4 && dl1.pos === 'UTG', 'deep link jam: ' + JSON.stringify(dl1));
+    ok(dl1.pct > 15, 'jam 4bb UTG should be >15%, got ' + dl1.pct);
+    await page.goto(FILE + '#6/short/CO', { waitUntil: 'networkidle0' });
+    await wait(400);
+    const dl2 = await page.evaluate(() => ({ band: S.band, size: S.size, pos: S.pos, label: POS.find(x => x.id === 'CO').rfi.label }));
+    ok(dl2.band === 'short' && dl2.size === 6 && dl2.pos === 'CO' && dl2.label === 'min-raise', 'deep link short: ' + JSON.stringify(dl2));
+    await page.goto(FILE + '#BTN/vs/LP/A5s', { waitUntil: 'networkidle0' });
+    await wait(400);
+    const dl3 = await page.evaluate(() => ({ band: S.band, size: S.size, act: document.querySelector('[data-hand="A5s"]').dataset.act }));
+    ok(dl3.band === 'deep' && dl3.size === 8 && dl3.act === 'raise', 'legacy link: ' + JSON.stringify(dl3));
+
+    // 回到深码 8 人，供后续测试使用
+    await jsClick('#bandToggle [data-band="deep"]');
+    await wait(150);
+  }
+
   // 13. hand follows the preflop selection (no manual hand entry)
   // 自带初始化：刷新页面（默认手牌 AA），进翻后，点 K♦ 7♣ 2♠
   await page.goto(FILE, { waitUntil: 'networkidle0' });

@@ -215,6 +215,21 @@
         <button type="button" data-size="2">2</button><button type="button" data-size="3">3</button><button type="button" data-size="4">4</button><button type="button" data-size="5">5</button><button type="button" data-size="6">6</button><button type="button" data-size="7">7</button><button type="button" data-size="8">8</button><button type="button" data-size="9">9</button>
       </div>
     </div>
+    <div class="flex items-center gap-2">
+      <span class="text-[11px] text-[var(--dim)]">筹码</span>
+      <div id="bandToggle" class="seg" role="group" aria-label="筹码深度">
+        <button type="button" data-band="deep" title="≥50BB 深码现金局">深码</button>
+        <button type="button" data-band="mid" title="25–50BB">中码</button>
+        <button type="button" data-band="short" title="15–25BB">短码</button>
+        <button type="button" data-band="jam" title="≤15BB push/fold">极短码</button>
+      </div>
+    </div>
+    <div id="depthWrap" class="hidden flex items-center gap-2">
+      <span class="text-[11px] text-[var(--dim)]">深度</span>
+      <div id="depthToggle" class="seg" role="group" aria-label="有效筹码">
+        <button type="button" data-depth="4">4BB</button><button type="button" data-depth="6">6BB</button><button type="button" data-depth="8">8BB</button><button type="button" data-depth="10">10BB</button><button type="button" data-depth="12">12BB</button><button type="button" data-depth="15">15BB</button>
+      </div>
+    </div>
     <span id="viewHint" class="text-[11px] text-[var(--dim)]">169 手牌 · 胜率来自蒙特卡洛模拟</span>
   </div>
 
@@ -227,6 +242,7 @@
     </div>    <div class="scroll-x -mx-1 px-1 pb-1">
       <div id="rail" class="grid grid-flow-col auto-cols-[minmax(88px,1fr)] sm:auto-cols-[minmax(100px,1fr)] gap-2"></div>
     </div>
+    <p id="bandNote" class="mt-2 text-[11.5px] leading-relaxed text-[var(--dim)]"></p>
   </section>
 
   <section class="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_352px] gap-5 items-start">
@@ -422,29 +438,128 @@ const RANKS = Array.from("AKQJT98765432");
 const HAND = D.hands;
 const BUCKET_ORDER = ["EP", "LP", "SB"];
 const SIZES = [2, 3, 4, 5, 6, 7, 8, 9];
+const BANDS = ["deep", "mid", "short", "jam"];
+const BAND_LABEL = { deep: "深码", mid: "中码", short: "短码", jam: "极短码" };
 
-const S = { size: D.defaultSize || 8, pos: "BTN", scenario: "rfi", bucket: "LP",
-            mode: "action", hand: "AA", view: "pre" };
+const S = { band: "deep", size: D.defaultSize || 8, pos: "BTN", scenario: "rfi",
+            bucket: "LP", depth: 10, mode: "action", hand: "AA", view: "pre" };
 
-// 人数 -> 位置集合；切人数时若当前位置不存在则回退到该人数的第一个行动位
+// 档位 × 人数 → 位置集合；jam 档按 (人数, BB 深度) 现场构建
 let POS = [], BY_ID = {}, POS_ORDER = [];
 function applySize(n) {
   S.size = n;
-  POS = D.tables[n].positions;
+  POS = tableOf().positions;
   BY_ID = Object.fromEntries(POS.map(p => [p.id, p]));
   POS_ORDER = POS.slice().reverse();
   if (!BY_ID[S.pos]) S.pos = POS[0].id;
 }
+function tableOf() {
+  if (S.band !== "jam") return D.bands[S.band].tables[S.size];
+  return buildJamTable(S.size, S.depth);
+}
 function fairShare() { return 100 / S.size; }
+function comboPct(hands) {
+  let n = 0;
+  hands.forEach(h => { n += HAND[h] ? HAND[h].combos : 0; });
+  return Math.round(1000 * n / 1326) / 10;
+}
+
+/* ---- jam 档：由 Nash 数据 + 底池赔率现场组装 positions ---- */
+const jamCache = {};
+function potOddsNeeded(seatId, depth) {
+  const d = depth;
+  if (seatId === "BB") return 100 * (d - 1) / (2 * d + 0.5);
+  if (seatId === "SB") return 100 * (d - 0.5) / (2 * d + 1);
+  return 100 * d / (2 * d + 1.5);
+}
+function buildJamTable(size, depth) {
+  const ck = size + "@" + depth;
+  if (jamCache[ck]) return jamCache[ck];
+  const J = D.bands.jam;
+  const classMap = J.classMap[size];
+  const seats = Object.keys(classMap);          // 行动顺序
+  const hu = size === 2;
+  const positions = seats.map((seat, i) => {
+    const cls = classMap[seat];
+    const notes = NOTE_OVERRIDE_JAM[seat] || {};
+    let shove = [], shovePct = 0;
+    if (hu) {
+      if (seat === "BTN") { shove = J.hu[depth].SB.h; shovePct = J.hu[depth].SB.p; }
+    } else if (seat !== "BB") {
+      shove = J.pc[depth][cls] || [];
+      shovePct = J.pcPct[depth][cls] || 0;
+    }
+    const vs = {};
+    seats.slice(0, i).forEach(jammer => {
+      const jCls = classMap[jammer];
+      let callHands = [], needed = 0, eqKey = "";
+      if (hu) {
+        if (seat === "BB" && jammer === "BTN") {
+          callHands = J.hu[depth]["BB|SB"].h;
+          eqKey = "jam|huSB|" + depth;
+        }
+      } else {
+        eqKey = "jam|pc|" + jCls + "|" + depth;
+      }
+      needed = potOddsNeeded(seat, depth);
+      if (!hu) {
+        callHands = Object.keys(HAND).filter(h => {
+          const v = HAND[h].eqVs[eqKey];
+          return v != null && v >= needed - 0.4;   // 胜率 ≥ 底池赔率要求（留 0.4 容差）
+        });
+      }
+      if (!callHands.length && !hu) return;
+      vs[jammer] = {
+        "raise": [], "call": callHands,
+        "raisePct": 0, "callPct": comboPct(callHands),
+        "playPct": comboPct(callHands),
+        "label": "全下", "callLabel": "跟注(面对全下)",
+        "raiseTokens": [], "callTokens": [],
+        "eqKey": eqKey, "needed": Math.round(needed * 10) / 10,
+        "openers": [jammer],
+        "openerPct": hu ? J.hu[depth].SB.p : (J.pcPct[depth][jCls] || 0),
+        "jamDepth": depth,
+      };
+    });
+    return {
+      id: seat, cn: SEAT_CN[size][seat], behind: seats.length - 1 - i,
+      notes: { rfi: notes.rfi || "全下或弃牌：没有加注-弃牌的空间，范围就是能全下的牌。",
+               vs: notes.vs || "跟注只看两个数：底池赔率要求的胜率，和你对该全下范围的实际胜率。" },
+      vs,
+      rfi: { na: seat === "BB", raise: shove, call: [], playPct: shovePct,
+             raisePct: shovePct, callPct: 0, label: "全下", callLabel: "—",
+             tokens: [] },
+    };
+  });
+  jamCache[ck] = { positions };
+  return jamCache[ck];
+}
+const SEAT_CN = {
+  2: { BTN: "按钮(小盲)", BB: "大盲" },
+  3: { BTN: "按钮", SB: "小盲", BB: "大盲" },
+  4: { CO: "关位", BTN: "按钮", SB: "小盲", BB: "大盲" },
+  5: { HJ: "劫位", CO: "关位", BTN: "按钮", SB: "小盲", BB: "大盲" },
+  6: { UTG: "枪口", HJ: "劫位", CO: "关位", BTN: "按钮", SB: "小盲", BB: "大盲" },
+  7: { UTG: "枪口", MP: "中位", HJ: "劫位", CO: "关位", BTN: "按钮", SB: "小盲", BB: "大盲" },
+  8: { UTG: "枪口", "UTG+1": "枪口+1", MP: "中位", HJ: "劫位", CO: "关位", BTN: "按钮", SB: "小盲", BB: "大盲" },
+  9: { UTG: "枪口", "UTG+1": "枪口+1", "UTG+2": "枪口+2", MP: "中位", HJ: "劫位", CO: "关位", BTN: "按钮", SB: "小盲", BB: "大盲" },
+};
+const NOTE_OVERRIDE_JAM = {};
 
 function handClass(i, j) {
   if (i === j) return RANKS[i] + RANKS[j];
   return i < j ? RANKS[i] + RANKS[j] + "s" : RANKS[j] + RANKS[i] + "o";
 }
 
+function vsKeys(p) {
+  // deep/mid/short 用 EP/LP/SB 固定顺序；jam 的 key 是全下者座位，按行动顺序排
+  if (S.band === "jam")
+    return POS.filter(x => p.vs[x.id]).map(x => x.id);
+  return BUCKET_ORDER.filter(b => p.vs[b]);
+}
 function normalize() {
   const p = BY_ID[S.pos];
-  const avail = BUCKET_ORDER.filter(b => p.vs[b]);
+  const avail = vsKeys(p);
   if (S.scenario === "rfi" && p.rfi.na) S.scenario = avail.length ? "vs" : "rfi";
   if (S.scenario === "vs") {
     if (!avail.length) S.scenario = "rfi";
@@ -456,7 +571,7 @@ function ctx() {
   const p = BY_ID[S.pos];
   if (S.scenario === "rfi") {
     return { na: !!p.rfi.na, data: p.rfi, raise: new Set(p.rfi.raise), call: new Set(),
-             label: "加注", callLabel: "跟注", eqKey: null };
+             label: p.rfi.label || "加注", callLabel: "跟注", eqKey: null };
   }
   const v = p.vs[S.bucket];
   return { na: false, data: v, raise: new Set(v.raise), call: new Set(v.call),
@@ -486,6 +601,7 @@ function equityFor(cls) {
 
 function bucketLabel(seat, b) {
   const v = BY_ID[seat].vs[b];
+  if (S.band === "jam") return v.openers[0] + " 全下";
   return v.openers.length === 1 ? v.openers[0] + " 开池"
     : v.openers[0] + "–" + v.openers[v.openers.length - 1] + " 开池";
 }
@@ -506,11 +622,18 @@ function luminance(rgb) {
 /* ---------------- rail ---------------- */
 function renderRail() {
   document.getElementById("h-pos").textContent = "位置 · 从大盲到" + POS_ORDER[POS_ORDER.length - 1].cn;
-  document.getElementById("sizeChip").textContent = "现金局 " + S.size + " 人桌";
+  document.getElementById("sizeChip").textContent =
+    S.size + " 人桌 · " + BAND_LABEL[S.band] + (S.band === "jam" ? " " + S.depth + "BB" : "");
+  document.querySelectorAll("#bandToggle [data-band]").forEach(b =>
+    b.setAttribute("aria-pressed", String(b.dataset.band === S.band)));
+  document.getElementById("depthWrap").classList.toggle("hidden", S.band !== "jam");
+  document.querySelectorAll("#depthToggle [data-depth]").forEach(b =>
+    b.setAttribute("aria-pressed", String(+b.dataset.depth === S.depth)));
   const hint = document.getElementById("viewHint");
   if (S.view === "pre") hint.textContent = `${S.size} 人桌 · ${POS.length} 个位置 · 胜率来自蒙特卡洛模拟`;
   document.querySelectorAll("#sizeToggle [data-size]").forEach(b =>
     b.setAttribute("aria-pressed", String(+b.dataset.size === S.size)));
+  document.getElementById("bandNote").textContent = D.bands[S.band].note;
   document.getElementById("rail").innerHTML = POS_ORDER.map(p => {
     const active = p.id === S.pos;
     const pct = p.rfi.na ? "—" : p.rfi.playPct.toFixed(1) + "%";
@@ -540,24 +663,27 @@ function renderRail() {
 /* ---------------- scenarios ---------------- */
 function renderScenarios() {
   const p = BY_ID[S.pos];
-  const avail = BUCKET_ORDER.filter(b => p.vs[b]);
+  const avail = vsKeys(p);
+  const jam = S.band === "jam";
   document.getElementById("scenarioTabs").innerHTML = `
     <button type="button" class="tab" role="tab" data-sc="rfi" aria-selected="${S.scenario === "rfi"}"
-      ${p.rfi.na ? "disabled" : ""} aria-controls="matrix">开池 RFI</button>
+      ${p.rfi.na ? "disabled" : ""} aria-controls="matrix">${jam ? "首入全下" : "开池 RFI"}</button>
     <button type="button" class="tab" role="tab" data-sc="vs" aria-selected="${S.scenario === "vs"}"
-      ${avail.length ? "" : "disabled"} aria-controls="matrix">面对开池</button>`;
+      ${avail.length ? "" : "disabled"} aria-controls="matrix">${jam ? "面对全下" : "面对开池"}</button>`;
   document.querySelectorAll("#scenarioTabs [data-sc]").forEach(b =>
     b.addEventListener("click", () => { S.scenario = b.dataset.sc; normalize(); renderAll(); }));
 
   const row = document.getElementById("bucketRow");
   if (S.scenario === "vs") {
-    row.innerHTML = `<span class="mr-1 text-[11px] text-[var(--dim)]">开池者</span>` +
+    row.innerHTML = `<span class="mr-1 text-[11px] text-[var(--dim)]">${jam ? "全下者" : "开池者"}</span>` +
       avail.map(b => `<button type="button" class="chip" data-bk="${b}" aria-pressed="${S.bucket === b}">
         ${bucketLabel(p.id, b)} <span class="opacity-55">${p.vs[b].openerPct}%</span></button>`).join("");
     row.querySelectorAll("[data-bk]").forEach(b =>
       b.addEventListener("click", () => { S.bucket = b.dataset.bk; S.scenario = "vs"; normalize(); renderAll(); }));
   } else {
-    row.innerHTML = `<span class="text-[11px] text-[var(--dim)]">前面无人入池，你是第一个行动：只有加注或弃牌。</span>`;
+    row.innerHTML = `<span class="text-[11px] text-[var(--dim)]">${
+      jam ? "前面无人行动：只有全下或弃牌。"
+          : "前面无人入池，你是第一个行动：只有" + (S.band === "short" ? "min-raise" : "加注") + "或弃牌。"}</span>`;
   }
 }
 
@@ -595,12 +721,17 @@ function renderMatrix() {
 
   const cap = document.getElementById("matrixCaption");
   const legendNote = document.getElementById("legendNote");
+  const jamTxt = S.band === "jam";
   if (c.na) {
-    cap.innerHTML = `<span class="text-[var(--txt)]">大盲没有开池决策</span>——全员弃牌你直接赢下底池。切到「面对开池」看防守范围。`;
+    cap.innerHTML = jamTxt
+      ? `<span class="text-[var(--txt)]">大盲没有首入全下</span>——全员弃牌你直接赢下底池。切到「面对全下」看跟注范围。`
+      : `<span class="text-[var(--txt)]">大盲没有开池决策</span>——全员弃牌你直接赢下底池。切到「面对开池」看防守范围。`;
   } else if (S.scenario === "rfi") {
-    cap.innerHTML = `<span class="text-[var(--txt)]">${BY_ID[S.pos].cn} ${S.pos}</span> 开池 <span class="text-[var(--txt)]">${c.data.playPct}%</span>，其余 ${(100 - c.data.playPct).toFixed(1)}% 弃牌`;
+    cap.innerHTML = `<span class="text-[var(--txt)]">${BY_ID[S.pos].cn} ${S.pos}</span> ${jamTxt ? "全下" : "开池"} <span class="text-[var(--txt)]">${c.data.playPct}%</span>，其余 ${(100 - c.data.playPct).toFixed(1)}% 弃牌${jamTxt ? " · " + S.depth + "BB" : ""}`;
   } else {
-    cap.innerHTML = `<span class="text-[var(--txt)]">${BY_ID[S.pos].cn} ${S.pos}</span> 面对${bucketLabel(S.pos, S.bucket)}：3-Bet <span class="text-[var(--txt)]">${c.data.raisePct}%</span> · 跟注 <span class="text-[var(--txt)]">${c.data.callPct}%</span>`;
+    cap.innerHTML = jamTxt
+      ? `<span class="text-[var(--txt)]">${BY_ID[S.pos].cn} ${S.pos}</span> 面对${bucketLabel(S.pos, S.bucket)}：跟注 <span class="text-[var(--txt)]">${c.data.callPct}%</span>（需胜率 ≥ ${c.data.needed}%）· 其余弃牌`
+      : `<span class="text-[var(--txt)]">${BY_ID[S.pos].cn} ${S.pos}</span> 面对${bucketLabel(S.pos, S.bucket)}：${c.data.label} <span class="text-[var(--txt)]">${c.data.raisePct}%</span> · 跟注 <span class="text-[var(--txt)]">${c.data.callPct}%</span>`;
   }
   legendNote.textContent = heat
     ? `格内数字与底色 = ${S.scenario === "rfi" ? "单挑胜率" : "对开池范围胜率"}`
@@ -637,11 +768,11 @@ function renderDetail() {
 
   const rp = c.na ? 0 : c.data.raisePct, cp = c.na ? 0 : c.data.callPct, fp = 100 - rp - cp;
   document.getElementById("dMixBar").innerHTML = c.na ? "" :
-    `<i style="width:${rp}%;background:linear-gradient(90deg,var(--raise1),var(--raise2))"></i>
-     <i style="width:${cp}%;background:linear-gradient(90deg,var(--call1),var(--call2))"></i>
+    `${rp > 0 ? `<i style="width:${rp}%;background:linear-gradient(90deg,var(--raise1),var(--raise2))"></i>` : ""}
+     ${cp > 0 ? `<i style="width:${cp}%;background:linear-gradient(90deg,var(--call1),var(--call2))"></i>` : ""}
      <i style="width:${Math.max(0, fp)}%;background:#1b2a36"></i>`;
   document.getElementById("dMixLegend").innerHTML = c.na ? "" :
-    `<span class="flex items-center gap-1.5"><span class="dot" style="background:var(--raise1)"></span>${c.data.label} ${rp.toFixed(1)}%</span>
+    `${rp > 0 ? `<span class="flex items-center gap-1.5"><span class="dot" style="background:var(--raise1)"></span>${c.data.label} ${rp.toFixed(1)}%</span>` : ""}
      ${cp > 0 ? `<span class="flex items-center gap-1.5"><span class="dot" style="background:var(--call1)"></span>${c.data.callLabel} ${cp.toFixed(1)}%</span>` : ""}
      <span class="flex items-center gap-1.5"><span class="dot" style="background:#2a3d4d"></span>弃牌 ${Math.max(0, fp).toFixed(1)}%</span>`;
 
@@ -677,8 +808,17 @@ function renderDetail() {
   const type = cls.length === 2 ? "对子" : cls.endsWith("s") ? "同花" : "非同花";
   const actColor = act === "raise" ? "var(--raise1)" : act === "call" ? "var(--call1)" : "var(--dim)";
   const actBg = act === "raise" ? "rgba(240,112,90,.14)" : act === "call" ? "rgba(70,195,147,.14)" : "rgba(255,255,255,.05)";
+  const eqVsVal = h.eqVs[c.eqKey] == null ? 0 : h.eqVs[c.eqKey];
   const vsBar = S.scenario === "vs"
-    ? barRow("对" + bucketLabel(S.pos, S.bucket) + "范围", h.eqVs[c.eqKey] == null ? 0 : h.eqVs[c.eqKey], 50, "linear-gradient(90deg,#a4552c,#f0a05a)")
+    ? barRow("对" + bucketLabel(S.pos, S.bucket) + "范围", eqVsVal,
+             S.band === "jam" ? (c.data.needed || 50) : 50,
+             "linear-gradient(90deg,#a4552c,#f0a05a)")
+    : "";
+  const jamVerdict = (S.scenario === "vs" && S.band === "jam" && c.data.needed)
+    ? `<div class="mt-3 rounded-lg border px-2.5 py-2 text-[11.5px] leading-relaxed"
+         style="border-color:${eqVsVal >= c.data.needed ? "rgba(70,195,147,.45)" : "rgba(240,112,90,.45)"};background:${eqVsVal >= c.data.needed ? "rgba(70,195,147,.08)" : "rgba(240,112,90,.08)"}">
+         需要胜率 <b>${c.data.needed}%</b>（底池赔率）· 你有 <b>${eqVsVal.toFixed(1)}%</b>
+         · <b>${eqVsVal >= c.data.needed ? "跟注" : "弃牌"}</b></div>`
     : "";
   const fair = Math.round(fairShare() * 10) / 10;
   // 2 人桌时「N 人底池」与单挑是同一个数，只显示一条
@@ -704,6 +844,7 @@ function renderDetail() {
       <div><div class="text-[var(--dim)]">单挑强度排名</div><div class="mt-0.5 text-[13px]">#${h.rankByN[0]} <span class="text-[10px] text-[var(--dim)]">/ 169</span></div></div>
       <div><div class="text-[var(--dim)]">${S.size} 人桌排名</div><div class="mt-0.5 text-[13px]">#${h.rankByN[S.size - 2]} <span class="text-[10px] text-[var(--dim)]">/ 169</span></div></div>
     </div>
+    ${jamVerdict}
     <p class="mt-3 text-[11.5px] leading-relaxed text-[var(--dim)]">${
       act === "na" ? "大盲没有开池决策。" :
       act === "fold" ? "不在当前范围里。这种牌在这个位置入池，会被身后的强范围长期压制。"
@@ -1264,14 +1405,19 @@ function readHash() {
     }
     return;
   }
-  // 可选人数段：#6/BTN/vs/LP/A5s；旧链接无人数段时默认 8。座位名可含数字（UTG+2）
-  const m = location.hash.match(/^#(?:(\d)\/)?([A-Z+][A-Z+0-9]*)(?:\/(rfi|vs))?(?:\/(EP|LP|SB))?(?:\/([AKQJT2-9]{2}[so]?))?$/);
+  // #<人数>/<档位>[/<深度>]/<座位>[/vs/<key>[/<手牌>]]；旧链接默认 8 人深码
+  const m = location.hash.match(
+    /^#(?:(\d)\/)?(?:([^\/]+)\/)?(?:(\d{1,2})bb\/)?([A-Z+][A-Z+0-9]*)(?:\/(rfi|vs))?(?:\/([^\/]+))?(?:\/([AKQJT2-9]{2}[so]?))?$/);
   if (!m) return;
-  applySize(m[1] ? +m[1] : (D.defaultSize || 8));
-  if (BY_ID[m[2]]) S.pos = m[2];
-  if (m[3]) S.scenario = m[3];
-  if (m[4]) S.bucket = m[4];
-  if (m[5] && HAND[m[5]]) S.hand = m[5];
+  const band = (m[2] && D.bands[m[2]]) ? m[2] : "deep";
+  S.size = (m[1] && +m[1] >= 2 && +m[1] <= 9) ? +m[1] : (D.defaultSize || 8);
+  S.band = band;
+  if (m[3]) S.depth = +m[3];
+  applySize(S.size);
+  if (BY_ID[m[4]]) S.pos = m[4];
+  if (m[5]) S.scenario = m[5];
+  if (m[6] && BY_ID[S.pos].vs[m[6]]) S.bucket = m[6];
+  if (m[7] && HAND[m[7]]) S.hand = m[7];
   S.view = "pre";
 }
 function writeHash() {
@@ -1279,7 +1425,8 @@ function writeHash() {
   if (S.view === "post") h = "#post/" + post.line + "/" + post.tex;
   else {
     const bits = [];
-    if (S.size !== (D.defaultSize || 8)) bits.push(String(S.size));
+    if (S.size !== (D.defaultSize || 8) || S.band !== "deep") bits.push(String(S.size), S.band);
+    if (S.band === "jam") bits.push(S.depth + "bb");
     bits.push(S.pos);
     if (S.scenario !== "rfi") bits.push("vs", S.bucket);
     if (S.hand) bits.push(S.hand);
@@ -1333,10 +1480,33 @@ document.querySelectorAll("#sizeToggle [data-size]").forEach(b =>
     else renderAll();
   }));
 
+function setBand(band) {
+  if (band === S.band) return;
+  S.band = band;
+  applySize(S.size);          // jam 档 tables 现场构建
+  normalize();
+  if (S.view === "post") renderPostAll();
+  else renderAll();
+}
+document.querySelectorAll("#bandToggle [data-band]").forEach(b =>
+  b.addEventListener("click", () => setBand(b.dataset.band)));
+document.querySelectorAll("#depthToggle [data-depth]").forEach(b =>
+  b.addEventListener("click", () => {
+    const d = +b.dataset.depth;
+    if (d === S.depth) return;
+    S.depth = d;
+    Object.keys(jamCache).forEach(k => delete jamCache[k]);
+    applySize(S.size);
+    normalize();
+    if (S.view === "post") renderPostAll();
+    else renderAll();
+  }));
+
 readHash();
 applySize(S.size);            // readHash 已设定人数；再按当前人数校正位置
 setView(S.view || "pre");     // setView 内部会渲染对应视图
 window.addEventListener("hashchange", () => {
+  Object.keys(jamCache).forEach(k => delete jamCache[k]);
   readHash();
   applySize(S.size);
   setView(S.view === "post" ? "post" : "pre");
