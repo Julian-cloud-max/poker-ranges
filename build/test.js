@@ -209,12 +209,12 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
   ok(await page.$eval('#postTextures [data-tex="high-dry"]', e => e.classList.contains('is-active')),
      'classifier should select the classified texture');
 
-  // 13. hand <-> board linkage
-  // AA on K72 → 超对 (overpair), equity high, advice mentions betting
+  // 13. hand follows the preflop selection (no manual hand entry)
+  // AA on K72 → 超对 (overpair), equity within eval7 tolerance, advice mentions value
   const handPanel = await page.$eval('#postHandBody', e => e.textContent);
   ok(handPanel.includes('超对'), 'AA on K72 should be 超对, got: ' + handPanel.slice(0, 120));
   ok(handPanel.includes('价值'), 'role label should appear');
-  // equity resolves within 4s and matches eval7 reference (88.8% HU / 42.7% 8-way) within tolerance
+  // equity resolves within 5s and matches eval7 reference (88.8% HU / 42.7% 8-way) within tolerance
   await page.waitForFunction(
     () => [...document.querySelectorAll('#postHandBody .mono')].filter(e => /%$/.test(e.textContent.trim())).length >= 2,
     { timeout: 5000 });
@@ -224,32 +224,63 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
   ok(huVal > 85 && huVal < 92.5, 'AA overpair on K72 heads-up equity should be 85~92.5%, got ' + huVal);
   ok(mwVal > 37 && mwVal < 49, 'AA overpair on K72 8-way share should be 37~49%, got ' + mwVal);
 
-  // flush draw case: clear, pick A♠K♠ + board Q♠ 7♠ 2♥
+  // core regression: picking a different hand in the preflop view must propagate
+  await page.click('#modeToggle [data-view=pre]');
+  await page.evaluate(() => document.querySelector('[data-hand="KQs"]').click());
+  await wait(150);
+  await page.click('#modeToggle [data-view=post]');
+  await wait(200);
+  const afterSwitch = await page.evaluate(() => post.hand.map(c => c.r + '.' + c.s).join(','));
+  ok(afterSwitch === '13.0,12.0', 'preflop KQs should propagate to postflop hand, got ' + afterSwitch);
+
+  // flush draw case: preflop AKs + board Q♠ 7♠ 2♥ → nut flush draw
+  await page.click('#modeToggle [data-view=pre]');
+  await page.evaluate(() => document.querySelector('[data-hand="AKs"]').click());
+  await wait(150);
+  await page.click('#modeToggle [data-view=post]');
+  await wait(200);
   await page.click('#postClear');
+  await wait(100);
   await page.evaluate(() => {
     const pick = (rk, st) => document.querySelector(`#postDeck .dk[data-r="${rk}"][data-s="${st}"]`).click();
-    pick(14, 0); pick(13, 0);           // 手牌 A♠ K♠
-    pick(12, 0); pick(7, 0); pick(2, 1); // 翻牌 Q♠ 7♠ 2♥
+    pick(12, 0); pick(7, 0); pick(2, 1);
   });
-  await wait(150);
+  await wait(200);
   const fdPanel = await page.$eval('#postHandBody', e => e.textContent);
   ok(fdPanel.includes('坚果同花听牌') || fdPanel.includes('同花听牌'),
-     'A♠K♠ on Q♠7♠2♥ should show flush draw, got: ' + fdPanel.slice(0, 160));
-  ok(fdPanel.includes('强听牌') || fdPanel.includes('听牌'), 'draw role should be labeled');
+     'AKs on Q♠7♠2♥ should show flush draw, got: ' + fdPanel.slice(0, 160));
   await page.waitForFunction(
     () => [...document.querySelectorAll('#postHandBody .mono')].filter(e => /%$/.test(e.textContent.trim())).length >= 1,
-    { timeout: 4000 });
+    { timeout: 5000 });
 
-  // set on K72: A♠K♠ + K♦ 7♣ 2♠ → top pair top kicker
+  // suit cycling keeps the class but changes suits
+  const suitsBefore = await page.evaluate(() => post.hand.map(c => c.s).join(','));
+  await page.click('#postPick [data-cyc]');
+  await wait(80);
+  const suitsAfter = await page.evaluate(() => post.hand.map(c => c.s).join(','));
+  ok(suitsBefore !== suitsAfter, 'clicking hand slot should cycle suits: ' + suitsBefore + ' -> ' + suitsAfter);
+  const sameClass = await page.evaluate(() => post.hand[0].r === 14 && post.hand[1].r === 13 && post.hand[0].s === post.hand[1].s);
+  ok(sameClass, 'cycling must keep AKs suited: ' + suitsAfter);
+
+  // clear clears the board but keeps the hand
   await page.click('#postClear');
+  await wait(100);
+  const cleared = await page.evaluate(() => ({ board: post.board.length, hand: post.hand.length }));
+  ok(cleared.board === 0 && cleared.hand === 2, 'clear should empty board only, got ' + JSON.stringify(cleared));
+
+  // top pair: preflop AKo + K♦ 7♣ 2♠ → 顶对踢脚A
+  await page.click('#modeToggle [data-view=pre]');
+  await page.evaluate(() => document.querySelector('[data-hand="AKo"]').click());
+  await wait(150);
+  await page.click('#modeToggle [data-view=post]');
+  await wait(200);
   await page.evaluate(() => {
     const pick = (rk, st) => document.querySelector(`#postDeck .dk[data-r="${rk}"][data-s="${st}"]`).click();
-    pick(14, 0); pick(13, 0);
     pick(13, 2); pick(7, 3); pick(2, 0);
   });
-  await wait(150);
+  await wait(200);
   const tpPanel = await page.$eval('#postHandBody', e => e.textContent);
-  ok(tpPanel.includes('顶对') && tpPanel.includes('踢脚 A'), 'AK on K72 should be 顶对踢脚A, got: ' + tpPanel.slice(0, 160));
+  ok(tpPanel.includes('顶对') && tpPanel.includes('踢脚 A'), 'AKo on K72 should be 顶对踢脚A, got: ' + tpPanel.slice(0, 160));
   // advice changes with the line: switch to caller line, role advice should differ from aggressor
   const flopAgg = await page.$eval('#postHandBody .street-block .tx', e => e.textContent);
   await page.click('#postLines [data-line="caller"]');

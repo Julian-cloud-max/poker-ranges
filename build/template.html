@@ -355,10 +355,10 @@
         </div>
 
         <div class="panel p-4 sm:p-5">
-          <div class="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-            <div class="eyebrow">实战入口 · 手牌 + 翻牌</div>
-            <span id="postClassifyHint" class="text-[11px] text-[var(--dim)]">先点 2 张手牌（自动带入翻前所选），再点 3 张翻牌</span>
-          </div>
+  <div class="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+    <div class="eyebrow">实战入口 · 手牌 + 翻牌</div>
+    <span id="postClassifyHint" class="text-[11px] text-[var(--dim)]">手牌跟随翻前点选 · 再点 3 张翻牌</span>
+  </div>
           <div id="postPick" class="flex items-center gap-2 flex-wrap"></div>
           <div class="scroll-x mt-3 pb-1">
             <div id="postDeck" class="grid grid-cols-[repeat(13,minmax(0,1fr))] gap-1" style="min-width:430px"></div>
@@ -723,7 +723,7 @@ const PF_RANKS = Array.from("AKQJT98765432");
 const PF_RN = { 14: "A", 13: "K", 12: "Q", 11: "J", 10: "T", 9: "9", 8: "8", 7: "7", 6: "6", 5: "5", 4: "4", 3: "3", 2: "2" };
 const PF_RN2 = { A: 14, K: 13, Q: 12, J: 11, T: 10, 9: 9, 8: 8, 7: 7, 6: 6, 5: 5, 4: 4, 3: 3, 2: 2 };
 const PF_TONE = { raise: "tone-raise", neutral: "tone-neutral", caution: "tone-caution" };
-const post = { line: "ip-rfi", tex: "high-dry", board: [], hand: [], handTouched: false, _eq: null };
+const post = { line: "ip-rfi", tex: "high-dry", board: [], hand: [], broughtClass: null, _eq: null };
 
 /* ---------- 5/7 张牌评估器（翻后成牌与胜率的基础） ---------- */
 function evalScore5(cards) {
@@ -1056,22 +1056,30 @@ function slotEl(c, label) {
 }
 
 function renderPostPick() {
+  const handSlots = [0, 1].map(i => {
+    const c = post.hand[i];
+    return c
+      ? `<button type="button" class="pcard-slot full" data-cyc="1" title="点击换花色（手牌本身跟随翻前点选）" aria-label="手牌 ${PF_RN[c.r]}${PF_SUITS[c.s]}，点击换花色">${pfCardLabel(c)}</button>`
+      : `<div class="pcard-slot"><span class="text-[10.5px] text-[var(--dim)]">第 ${i + 1} 张</span></div>`;
+  }).join("");
   const groups = `
     <div class="flex flex-col gap-1">
-      <span class="text-[10px] uppercase tracking-[.14em] text-[var(--dim)]">我的手牌</span>
-      <div class="flex gap-2">${[0, 1].map(i => slotEl(post.hand[i], i === 0 ? "第 1 张" : "第 2 张")).join("")}</div>
+      <span class="text-[10px] uppercase tracking-[.14em] text-[var(--dim)]">我的手牌 · 跟随翻前点选</span>
+      <div class="flex gap-2">${handSlots}</div>
     </div>
     <div class="vline self-stretch hidden sm:block"></div>
     <div class="flex flex-col gap-1">
-      <span class="text-[10px] uppercase tracking-[.14em] text-[var(--dim)]">翻牌</span>
+      <span class="text-[10px] uppercase tracking-[.14em] text-[var(--dim)]">翻牌 · 点 3 张</span>
       <div class="flex gap-2">${[0, 1, 2].map(i => slotEl(post.board[i], i + 1 + "")).join("")}</div>
     </div>`;
-  const clear = (post.hand.length || post.board.length)
-    ? `<button type="button" class="chip self-end" id="postClear">清空</button>` : "";
+  const clear = post.board.length
+    ? `<button type="button" class="chip self-end" id="postClear">清空翻牌</button>` : "";
   document.getElementById("postPick").innerHTML = groups + clear;
+  document.querySelectorAll("#postPick [data-cyc]").forEach(b =>
+    b.addEventListener("click", () => { cycleHandSuits(); renderPostAll(); }));
   const btn = document.getElementById("postClear");
   if (btn) btn.addEventListener("click", () => {
-    post.board = []; post.hand = []; post.handTouched = true; post._eq = null; renderPostAll();
+    post.board = []; post._eq = null; renderPostAll();
   });
 }
 
@@ -1092,13 +1100,11 @@ function renderPostDeck() {
     }).join("")).join("");
   deck.querySelectorAll("[data-r]").forEach(b => b.addEventListener("click", () => {
     const r = +b.dataset.r, s = +b.dataset.s;
-    const inHand = post.hand.findIndex(c => c.r === r && c.s === s);
+    const inHand = post.hand.some(c => c.r === r && c.s === s);
     const inBoard = post.board.findIndex(c => c.r === r && c.s === s);
-    if (inHand > -1) post.hand.splice(inHand, 1);
+    if (inHand) cycleHandSuits();
     else if (inBoard > -1) post.board.splice(inBoard, 1);
-    else if (post.hand.length < 2) post.hand.push({ r, s });
     else if (post.board.length < 3) post.board.push({ r, s });
-    post.handTouched = true;
     renderPostAll();
   }));
 }
@@ -1106,10 +1112,11 @@ function renderPostDeck() {
 /* ---------- 联动面板：你这手牌怎么打 ---------- */
 function renderPostHand() {
   const box = document.getElementById("postHandBody");
-  if (post.hand.length < 2 || post.board.length < 3) {
+  if (post.board.length < 3) {
     box.innerHTML = `<span class="text-[11.5px] leading-relaxed text-[var(--dim)]">
-      在左侧点 2 张手牌 + 3 张翻牌（手牌会自动带入你在翻前选的牌），
-      这里会算出你现在成什么牌、有什么听牌、翻后真实胜率，并给出三条街的具体打法。</span>`;
+      手牌已按翻前点选带入，再点 ${3 - post.board.length} 张翻牌，
+      这里会算出你现在成什么牌、有什么听牌、翻后真实胜率，并给出三条街的具体打法。
+      （要换手牌，回「翻前范围」点另一格即可；点手牌可换花色。）</span>`;
     return;
   }
   const info = classifyHero(post.hand, post.board);
@@ -1152,7 +1159,7 @@ function renderPostHand() {
     </div>`;
 }
 
-/* ---------- 翻前手牌 → 具体两张牌（自动带入） ---------- */
+/* ---------- 手牌跟随翻前点选（唯一来源） ---------- */
 function classToCards(cls, board) {
   const used = new Set(board.map(c => c.r * 4 + c.s));
   const free = r => { for (let s = 0; s < 4; s++) if (!used.has(r * 4 + s)) return s; return -1; };
@@ -1171,22 +1178,39 @@ function classToCards(cls, board) {
   const s2 = free(lo);
   return [{ r: hi, s: s1 }, { r: lo, s: s2 }];
 }
-function autoBringHand() {
-  if (post.handTouched || post.hand.length === 2) return;
-  if (S.hand && HAND[S.hand]) {
-    post.hand = classToCards(S.hand, post.board);
-    post._eq = null;
+function syncHand() {
+  const cls = S.hand && HAND[S.hand] ? S.hand : "AA";
+  if (post.broughtClass === cls && post.hand.length === 2) return;
+  post.hand = classToCards(cls, post.board);
+  post.broughtClass = cls;
+  post._eq = null;
+}
+function cycleHandSuits() {
+  const cls = post.broughtClass || (S.hand && HAND[S.hand] ? S.hand : "AA");
+  const used = new Set(post.board.map(c => c.r * 4 + c.s));
+  const hi = PF_RN2[cls[0]], lo = PF_RN2[cls[1]];
+  const opts = [];
+  if (cls.length === 2) {
+    for (let a = 0; a < 4; a++) for (let b = a + 1; b < 4; b++)
+      if (!used.has(hi * 4 + a) && !used.has(hi * 4 + b)) opts.push([{ r: hi, s: a }, { r: hi, s: b }]);
+  } else if (cls[2] === "s") {
+    for (let s = 0; s < 4; s++)
+      if (!used.has(hi * 4 + s) && !used.has(lo * 4 + s)) opts.push([{ r: hi, s }, { r: lo, s }]);
+  } else {
+    for (let a = 0; a < 4; a++) for (let b = 0; b < 4; b++)
+      if (a !== b && !used.has(hi * 4 + a) && !used.has(lo * 4 + b)) opts.push([{ r: hi, s: a }, { r: lo, s: b }]);
   }
+  if (opts.length < 2) return;
+  const key = h => h.map(c => c.s).join(",");
+  const idx = opts.findIndex(o => key(o) === key(post.hand));
+  post.hand = opts[(idx + 1) % opts.length];
+  post._eq = null;
 }
 
 function renderPostClassify() {
   const hint = document.getElementById("postClassifyHint");
-  if (post.hand.length < 2 && post.board.length < 3) {
-    hint.innerHTML = `先点 2 张手牌（自动带入翻前所选），再点 3 张翻牌`;
-    return;
-  }
   if (post.board.length < 3) {
-    hint.innerHTML = `手牌已就绪，再选 ${3 - post.board.length} 张翻牌`;
+    hint.innerHTML = `手牌跟随翻前点选 · 再选 ${3 - post.board.length} 张翻牌`;
     return;
   }
   const id = classifyBoard(post.board);
@@ -1196,7 +1220,7 @@ function renderPostClassify() {
 }
 
 function renderPostAll() {
-  autoBringHand();
+  syncHand();
   if (post.board.length === 3) { const id = classifyBoard(post.board); if (id) post.tex = id; }
   renderPostLines();
   renderPostTextures();
