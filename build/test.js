@@ -36,9 +36,13 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
     els.filter(e => e.dataset.hand !== e.querySelector('.hc-hand').textContent).map(e => e.dataset.hand));
   ok(mismatch.length === 0, 'label mismatch: ' + mismatch.slice(0, 5));
 
-  // 4. rail = 8 positions
+  // 4. rail = 8 positions, displayed BB → UTG
   const railN = await page.$$eval('#rail [data-pos]', e => e.length);
   ok(railN === 8, 'rail should have 8, got ' + railN);
+  const railOrder = await page.$$eval('#rail [data-pos]', els => els.map(e => e.dataset.pos).join(','));
+  ok(railOrder === 'BB,SB,BTN,CO,HJ,MP,UTG+1,UTG', 'rail order should run BB→UTG, got ' + railOrder);
+  const sumOrder = await page.$$eval('#summaryBody [data-pos]', els => els.map(e => e.dataset.pos).join(','));
+  ok(sumOrder === 'BB,SB,BTN,CO,HJ,MP,UTG+1,UTG', 'summary rows should run BB→UTG, got ' + sumOrder);
 
   // 5. scenario availability per seat
   const seats = ['UTG', 'UTG+1', 'MP', 'HJ', 'CO', 'BTN', 'SB', 'BB'];
@@ -213,8 +217,7 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
   ok(await page.$eval('#postTextures [data-tex="high-dry"]', e => e.classList.contains('is-active')),
      'classifier should select the classified texture');
 
-  // 13. hand follows the preflop selection (no manual hand entry)
-  // AA on K72 → 超对 (overpair), equity within eval7 tolerance, advice mentions value
+  // 13. hand follows the preflop selection (no manual hand entry)  // AA on K72 → 超对 (overpair), equity within eval7 tolerance, advice mentions value
   const handPanel = await page.$eval('#postHandBody', e => e.textContent);
   ok(handPanel.includes('超对'), 'AA on K72 should be 超对, got: ' + handPanel.slice(0, 120));
   ok(handPanel.includes('价值'), 'role label should appear');
