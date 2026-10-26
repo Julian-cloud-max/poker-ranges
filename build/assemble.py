@@ -15,10 +15,15 @@ TAILWIND = ["npx", "--yes", "tailwindcss@3.4.17", "-i", os.path.join(HERE, "inpu
 
 
 def run_tailwind():
-    r = subprocess.run(TAILWIND, capture_output=True, text=True, shell=True)
+    # content 路径按 cwd 解析，必须固定在仓库根，否则从 build/ 里运行会扫描为空
+    r = subprocess.run(TAILWIND, capture_output=True, text=True, shell=True, cwd=ROOT)
     if r.returncode != 0:
         sys.exit("tailwind failed:\n" + (r.stderr or r.stdout))
-    print("tailwind ok")
+    css = open(os.path.join(HERE, "tw.css"), encoding="utf-8")
+    n_utility = css.read().count("{")
+    if n_utility < 100:
+        sys.exit(f"tailwind output looks empty ({n_utility} rules) — content glob missed")
+    print("tailwind ok,", n_utility, "rules")
 
 
 def git_build_id():
