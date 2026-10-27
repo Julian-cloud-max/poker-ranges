@@ -77,10 +77,10 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
   }
   ok(report['UTG+1'].chips.join() === 'EP', 'UTG+1 chips ' + report['UTG+1'].chips);
   ok(report['HJ'].chips.join() === 'EP', 'HJ chips ' + report['HJ'].chips);
-  ok(report['CO'].chips.join() === 'EP,LP', 'CO chips ' + report['CO'].chips);
-  ok(report['BTN'].chips.join() === 'EP,LP', 'BTN chips ' + report['BTN'].chips);
-  ok(report['SB'].chips.join() === 'EP,LP', 'SB chips ' + report['SB'].chips);
-  ok(report['BB'].chips.join() === 'EP,LP,SB', 'BB chips ' + report['BB'].chips);
+  ok(report['CO'].chips.join() === 'EP,MP', 'CO chips ' + report['CO'].chips);
+  ok(report['BTN'].chips.join() === 'EP,MP', 'BTN chips ' + report['BTN'].chips);
+  ok(report['SB'].chips.join() === 'EP,MP,LP', 'SB chips ' + report['SB'].chips);
+  ok(report['BB'].chips.join() === 'EP,MP,LP,SB', 'BB chips ' + report['BB'].chips);
 
   // 6. displayed equity matches dataset
   await page.click('#rail [data-pos="BTN"]');
@@ -503,6 +503,88 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
   await wait(120);
   const flopCaller = await page.$eval('#postHandBody .street-block .tx', e => e.textContent);
   ok(flopAgg !== flopCaller, 'role advice should change between aggressor and caller lines');
+
+  // 12d. LP 桶拆分 / 被 3bet / 混合频率 / 翻后查询器
+  {
+    // LP 拆分：BB 面对开池应有 4 个桶，MP 响应介于 EP 与 LP 之间
+    await page.goto(FILE + '#8/BB/vs/EP', { waitUntil: 'networkidle0' });
+    await wait(300);
+    const bks = await page.evaluate(() => ({
+      chips: [...document.querySelectorAll('#bucketRow .chip')].map(c => c.textContent.trim()),
+      mp: (() => { const v = POS.find(x => x.id === 'BB').vs.MP; return v ? [v.raisePct, v.callPct, v.openerPct] : null; })(),
+    }));
+    ok(bks.chips.length === 4, 'BB should have 4 opener buckets, got ' + bks.chips.length);
+    ok(bks.chips.some(c => c.includes('HJ–CO')), 'bucket chip should include HJ–CO: ' + bks.chips.join('|'));
+    ok(bks.mp && bks.mp[0] > 11 && bks.mp[0] < 15 && bks.mp[2] === 28.2,
+      'BB vs MP [3bet,call,opener] ' + JSON.stringify(bks.mp));
+    const spread = await page.evaluate(() => {
+      const bb = POS.find(x => x.id === 'BB');
+      return { ep: bb.vs.EP.raisePct, mp: bb.vs.MP.raisePct, lp: bb.vs.LP.raisePct };
+    });
+    ok(spread.ep < spread.mp && spread.mp < spread.lp, '3bet% should be EP<MP<LP: ' + JSON.stringify(spread));
+
+    // 被 3bet：BTN 面对 SB/BB 3bet
+    await page.goto(FILE + '#8/BTN/v3/SB3', { waitUntil: 'networkidle0' });
+    await wait(300);
+    const v3 = await page.evaluate(() => ({
+      scenario: S.scenario, bucket: S.bucket, hash: location.hash,
+      label: ctx().label, raisePct: ctx().data.raisePct, callPct: ctx().data.callPct,
+      rangePct: ctx().data.rangePct,
+      aks: actOf('AKs'), kqs: actOf('KQs'), o72: actOf('72o'),
+      cap: document.getElementById('matrixCaption').textContent,
+    }));
+    ok(v3.scenario === 'v3' && v3.bucket === 'SB3', 'v3 deep link state ' + v3.scenario + '/' + v3.bucket);
+    ok(v3.hash.includes('/v3/SB3'), 'v3 hash kept: ' + v3.hash);
+    ok(v3.label === '4-Bet', 'v3 raise label ' + v3.label);
+    ok(v3.raisePct > 3 && v3.raisePct < 5 && v3.callPct > 7 && v3.callPct < 11,
+      'v3 4bet/call pct ' + v3.raisePct + '/' + v3.callPct);
+    ok(v3.aks === 'raise' && v3.kqs === 'call' && v3.o72 === 'fold',
+      'v3 actions AKs/KQs/72o: ' + [v3.aks, v3.kqs, v3.o72]);
+    ok(v3.rangePct === 9.2, 'v3 range pct ' + v3.rangePct);
+    ok(v3.cap.includes('3bet 方参考范围'), 'v3 caption: ' + v3.cap);
+
+    // 混合频率：BB vs LP 的 QTs 显示混合
+    await page.goto(FILE + '#8/BB/vs/LP/QTs', { waitUntil: 'networkidle0' });
+    await wait(300);
+    const mix = await page.evaluate(() => ({
+      act: actOf('QTs'),
+      freq: ctx().data.mix && ctx().data.mix.QTs,
+      detail: document.getElementById('dHand').textContent.includes('solver 在这里混合'),
+      cap: document.getElementById('matrixCaption').textContent,
+    }));
+    ok(mix.act === 'mix', 'QTs should be mix, got ' + mix.act);
+    ok(mix.freq && mix.freq.r === 50 && mix.freq.c === 50, 'QTs mix freq ' + JSON.stringify(mix.freq));
+    ok(mix.detail, 'detail should show mix frequencies');
+    ok(mix.cap.includes('含混合'), 'caption should mention mix: ' + mix.cap);
+
+    // 翻后查询器：档位映射 + 对手类型规则
+    await page.goto(FILE + '#post/ip-rfi/high-wet', { waitUntil: 'networkidle0' });
+    await wait(300);
+    const q = await page.evaluate(() => {
+      S.hand = 'AKs';
+      setView('post');
+      post.opp = 'normal'; post.qStreet = 'flop';
+      post.board = [{ r: 12, s: 0 }, { r: 7, s: 0 }, { r: 2, s: 1 }];  // 翻牌两同色（与 AKs 同花色）
+      renderPostAll();
+      const txt = document.getElementById('postHandBody').textContent;
+      return { hasQuery: txt.includes('本街行动'), tier: tierOf(classifyHero(post.hand, post.board)) };
+    });
+    ok(q.hasQuery, 'query block should render');
+    ok(q.tier === 't5', 'AhKh + two hearts on board should be t5, got ' + q.tier);
+    const q2 = await page.evaluate(() => {
+      const tier = tierOf(classifyHero(post.hand, post.board));
+      const base = PF.query.plans[post.line].river[tier];
+      post.opp = 'passive';
+      const planPassive = queryPlan(post.line, 'river', tier, post.tex);
+      post.opp = 'aggro';
+      const planAggro = queryPlan(post.line, 'river', tier, post.tex);
+      post.opp = 'normal';
+      return { base, planPassive, planAggro };
+    });
+    ok(q2.base[0] === '诈唬', 't5 river base should be 诈唬, got ' + q2.base[0]);
+    ok(q2.planPassive.act[0] === '过牌', 'passive river t5 should become 过牌, got ' + JSON.stringify(q2.planPassive));
+    ok(q2.planAggro.act[0] === '过牌', 'aggro river t5 should become 过牌, got ' + JSON.stringify(q2.planAggro));
+  }
 
   // deep link into postflop
   await page.goto(FILE + '#post/caller/low-connected', { waitUntil: 'networkidle0' });

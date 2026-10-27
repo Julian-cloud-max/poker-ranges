@@ -166,16 +166,16 @@ TABLES = {
 CN = {"UTG": "枪口", "UTG+1": "枪口+1", "UTG+2": "枪口+2", "MP": "中位", "HJ": "劫位",
       "CO": "关位", "BTN": "按钮", "SB": "小盲", "BB": "大盲"}
 
-# 每个人数的开池者分组：EP=前位, LP=后位, SB=小盲
+# 每个人数的开池者分组：EP=前位, MP=中后位(HJ/CO), LP=按钮, SB=小盲
 BUCKET_SEATS = {
-    9: {"EP": ["UTG", "UTG+1", "UTG+2", "MP"], "LP": ["HJ", "CO", "BTN"], "SB": ["SB"]},
-    8: {"EP": ["UTG", "UTG+1", "MP"], "LP": ["HJ", "CO", "BTN"], "SB": ["SB"]},
-    7: {"EP": ["UTG", "MP"], "LP": ["HJ", "CO", "BTN"], "SB": ["SB"]},
-    6: {"EP": ["UTG"], "LP": ["HJ", "CO", "BTN"], "SB": ["SB"]},
-    5: {"EP": ["HJ"], "LP": ["CO", "BTN"], "SB": ["SB"]},
-    4: {"EP": [], "LP": ["CO", "BTN"], "SB": ["SB"]},
-    3: {"EP": [], "LP": ["BTN"], "SB": ["SB"]},
-    2: {"EP": [], "LP": [], "SB": ["BTN"]},
+    9: {"EP": ["UTG", "UTG+1", "UTG+2", "MP"], "MP": ["HJ", "CO"], "LP": ["BTN"], "SB": ["SB"]},
+    8: {"EP": ["UTG", "UTG+1", "MP"], "MP": ["HJ", "CO"], "LP": ["BTN"], "SB": ["SB"]},
+    7: {"EP": ["UTG", "MP"], "MP": ["HJ", "CO"], "LP": ["BTN"], "SB": ["SB"]},
+    6: {"EP": ["UTG"], "MP": ["HJ", "CO"], "LP": ["BTN"], "SB": ["SB"]},
+    5: {"EP": ["HJ"], "MP": ["CO"], "LP": ["BTN"], "SB": ["SB"]},
+    4: {"EP": [], "MP": ["CO"], "LP": ["BTN"], "SB": ["SB"]},
+    3: {"EP": [], "MP": [], "LP": ["BTN"], "SB": ["SB"]},
+    2: {"EP": [], "MP": [], "LP": [], "SB": ["BTN"]},
 }
 
 # ---------------------------------------------------------------- 8 人基准
@@ -208,15 +208,26 @@ VS8 = {
         "EP": (["77+", "ATs+", "AQo+", "A5s-A2s", "KQs", "KJs", "KTs", "QJs", "JTs"],
                ["22-66", "A9s-A6s", "K9s", "QTs", "T9s", "98s", "87s", "76s", "65s",
                 "54s", "AJo", "KQo", "KJo"]),
-        "LP": (["66+", "AJs+", "AQo+", "A5s-A2s", "KQs", "KJs", "KTs", "QJs", "JTs"],
-               ["22-55", "ATs", "A9s-A6s", "K9s", "K8s", "QTs", "Q9s", "J9s", "T9s",
-                "98s", "87s", "76s", "65s", "54s", "AJo", "KQo", "KJo"]),
+        "MP": (["66+", "ATs+", "AQo+", "A5s-A2s", "KQs", "KJs", "KTs", "QJs", "JTs",
+                "T9s"],
+               ["22-55", "A9s-A6s", "K9s", "QTs", "Q9s", "J9s", "T9s", "98s", "87s",
+                "76s", "65s", "54s", "AJo", "KQo", "KJo"]),
+        "LP": (["55+", "ATs+", "AQo+", "A5s-A2s", "KQs", "KJs", "KTs", "QJs", "JTs",
+                "T9s", "98s"],
+               ["22-44", "A9s-A6s", "K7s-K9s", "Q7s-Q9s", "J8s-J9s", "T7s-T9s",
+                "96s-97s", "85s-87s", "76s", "65s", "54s", "AJo", "KQo", "KJo",
+                "KTo", "QTo", "JTo", "QTs"]),
     },
     "BTN": {
         "EP": (["55+", "ATs+", "AQo+", "A5s-A2s", "KQs", "KJs", "KTs", "QJs", "JTs",
                 "T9s", "98s"],
                ["22-44", "A9s-A6s", "K9s", "QTs", "Q9s", "J9s", "T8s", "97s", "87s",
                 "86s", "76s", "75s", "65s", "54s", "AJo", "ATo", "KJo", "QJo", "KQo"]),
+        "MP": (["44+", "A9s+", "ATo+", "A5s-A2s", "KTs+", "QTs+", "JTs", "T9s", "98s",
+                "KQo"],
+               ["22-33", "A8s-A6s", "K7s-K9s", "Q7s-Q9s", "J7s-J9s", "T7s-T8s",
+                "96s-97s", "85s-87s", "75s-76s", "64s-65s", "54s", "AJo", "KJo",
+                "KTo", "QJo", "QTo", "JTo", "98o"]),
         "LP": (["44+", "A9s+", "ATo+", "A5s-A2s", "KTs+", "QTs+", "JTs", "T9s", "98s",
                 "KQo"],
                ["22-33", "A8s-A6s", "K8s-K9s", "Q8s-Q9s", "J8s-J9s", "T7s-T8s",
@@ -226,6 +237,10 @@ VS8 = {
     "SB": {
         "EP": (["66+", "ATs+", "AQo+", "A5s-A2s", "KQs", "KJs", "KTs", "QJs", "JTs",
                 "T9s", "98s", "87s"], []),
+        "MP": (["66+", "A9s+", "ATo+", "A5s-A2s", "KTs+", "QTs+", "JTs", "T9s", "98s",
+                "KQo"],
+               ["22-55", "A8s-A6s", "K9s", "Q9s", "J9s", "T8s", "97s", "86s-87s",
+                "75s-76s", "65s", "54s"]),
         "LP": (["55+", "A9s+", "ATo+", "A5s-A2s", "KTs+", "QTs+", "JTs", "T9s", "98s",
                 "KQo"],
                ["22-44", "A8s-A6s", "K9s", "Q9s", "J9s", "T8s", "97s", "86s-87s",
@@ -237,6 +252,11 @@ VS8 = {
                ["22-55", "A9s-A6s", "K9s", "QTs", "Q9s", "J9s", "T8s", "97s", "86s",
                 "75s", "64s", "54s", "ATo", "AJo", "KQo", "KJo", "QJo", "KTo", "QTo",
                 "JTo", "T9o", "98o", "87o"]),
+        "MP": (["55+", "A9s+", "ATo+", "A5s-A2s", "KQs", "KJs", "KTs", "QTs+", "JTs",
+                "T9s", "98s", "KQo", "KJo"],
+               ["22-44", "A8s-A6s", "K5s-K9s", "Q6s-Q9s", "J7s-J9s", "T7s-T8s",
+                "96s-97s", "85s-87s", "74s-76s", "64s-65s", "53s-54s", "43s",
+                "A2o-A5o", "K7o-KTo", "Q8o-QJo", "J9o-JTo", "T9o", "98o", "87o"]),
         "LP": (["55+", "A9s+", "ATo+", "A5s-A2s", "KTs+", "QTs+", "JTs", "T9s", "98s",
                 "KQo", "KJo"],
                ["22-44", "A8s-A6s", "K2s-K9s", "Q6s-Q9s", "J7s-J9s", "T7s-T8s",
@@ -311,28 +331,28 @@ VS_TABLES = {
         for seat, buckets in VS8.items()},
     9: {"UTG+1": {"EP": "UTG+1.EP@8"},
         "UTG+2": {"EP": "UTG+1.EP@8"},
-        "MP": {"EP": "MP.EP@8"}, "HJ": {"EP": "HJ.EP@8", "LP": "HJ.LP@8"},
-        "CO": {"EP": "CO.EP@8", "LP": "CO.LP@8"},
-        "BTN": {"EP": "BTN.EP@8", "LP": "BTN.LP@8"},
-        "SB": {"EP": "SB.EP@8", "LP": "SB.LP@8"},
-        "BB": {"EP": "BB.EP@8", "LP": "BB.LP@8", "SB": "BB.SB@8"}},
-    7: {"MP": {"EP": "MP.EP@8"}, "HJ": {"EP": "HJ.EP@8", "LP": "HJ.LP@8"},
-        "CO": {"EP": "CO.EP@8", "LP": "CO.LP@8"},
-        "BTN": {"EP": "BTN.EP@8", "LP": "BTN.LP@8"},
-        "SB": {"EP": "SB.EP@8", "LP": "SB.LP@8"},
-        "BB": {"EP": "BB.EP@8", "LP": "BB.LP@8", "SB": "BB.SB@8"}},
-    6: {"HJ": {"EP": "HJ.EP@8", "LP": "HJ.LP@8"},
-        "CO": {"EP": "CO.EP@8", "LP": "CO.LP@8"},
-        "BTN": {"EP": "BTN.EP@8", "LP": "BTN.LP@8"},
-        "SB": {"EP": "SB.EP@8", "LP": "SB.LP@8"},
-        "BB": {"EP": "BB.EP@8", "LP": "BB.LP@8", "SB": "BB.SB@8"}},
-    5: {"CO": {"EP": "CO.LP@8", "LP": "CO.LP@8"},
-        "BTN": {"EP": "BTN.EP@8", "LP": "BTN.LP@8"},
-        "SB": {"EP": "SB.EP@8", "LP": "SB.LP@8"},
-        "BB": {"EP": "BB.EP@8", "LP": "BB.LP@8", "SB": "BB.SB@8"}},
-    4: {"BTN": {"LP": "BTN.LP@8"},
-        "SB": {"LP": "SB.LP@8"},
-        "BB": {"LP": "BB.LP@8", "SB": "BB.SB@8"}},
+        "MP": {"EP": "MP.EP@8"}, "HJ": {"EP": "HJ.EP@8"},
+        "CO": {"EP": "CO.EP@8", "MP": "CO.MP@8"},
+        "BTN": {"EP": "BTN.EP@8", "MP": "BTN.MP@8", "LP": "BTN.LP@8"},
+        "SB": {"EP": "SB.EP@8", "MP": "SB.MP@8", "LP": "SB.LP@8"},
+        "BB": {"EP": "BB.EP@8", "MP": "BB.MP@8", "LP": "BB.LP@8", "SB": "BB.SB@8"}},
+    7: {"MP": {"EP": "MP.EP@8"}, "HJ": {"EP": "HJ.EP@8"},
+        "CO": {"EP": "CO.EP@8", "MP": "CO.MP@8"},
+        "BTN": {"EP": "BTN.EP@8", "MP": "BTN.MP@8", "LP": "BTN.LP@8"},
+        "SB": {"EP": "SB.EP@8", "MP": "SB.MP@8", "LP": "SB.LP@8"},
+        "BB": {"EP": "BB.EP@8", "MP": "BB.MP@8", "LP": "BB.LP@8", "SB": "BB.SB@8"}},
+    6: {"HJ": {"EP": "HJ.EP@8"},
+        "CO": {"EP": "CO.EP@8", "MP": "CO.MP@8"},
+        "BTN": {"EP": "BTN.EP@8", "MP": "BTN.MP@8", "LP": "BTN.LP@8"},
+        "SB": {"EP": "SB.EP@8", "MP": "SB.MP@8", "LP": "SB.LP@8"},
+        "BB": {"EP": "BB.EP@8", "MP": "BB.MP@8", "LP": "BB.LP@8", "SB": "BB.SB@8"}},
+    5: {"CO": {"EP": "CO.MP@8"},
+        "BTN": {"MP": "BTN.MP@8", "LP": "BTN.LP@8"},
+        "SB": {"MP": "SB.MP@8", "LP": "SB.LP@8"},
+        "BB": {"MP": "BB.MP@8", "LP": "BB.LP@8", "SB": "BB.SB@8"}},
+    4: {"BTN": {"MP": "BTN.LP@8", "LP": "BTN.LP@8"},
+        "SB": {"MP": "SB.LP@8", "LP": "SB.LP@8"},
+        "BB": {"MP": "BB.LP@8", "LP": "BB.LP@8", "SB": "BB.SB@8"}},
     3: {
         "SB": {"LP": (["22+", "A2s+", "K7s+", "Q8s+", "J8s+", "T8s+", "97s+", "86s+",
                        "76s", "65s", "A9o+", "K9o+", "Q9o+", "J9o+", "T9o"],
@@ -459,6 +479,82 @@ SHORT_RESHOVE = {
                     "98s", "KQo", "KJo"],
     ("BB", "SB"):  ["33+", "A5s+", "A4s-A2s", "K8s+", "Q8s+", "J9s+", "T9s", "98s",
                     "87s", "A9o+", "KTo+", "QTo+", "JTo", "T9o"],
+    # MP 桶（面对 HJ/CO 的 min-raise）：比 LP 略紧
+    ("CO", "MP"):  ["66+", "ATs+", "AQo+", "A5s-A3s", "KQs", "KJs"],
+    ("BTN", "MP"): ["55+", "ATs+", "AQo+", "A5s-A3s", "KQs", "KJs", "KTs", "QJs",
+                    "JTs", "T9s"],
+    ("SB", "MP"):  ["66+", "A9s+", "ATo+", "A5s-A3s", "KQs", "KJs", "QTs"],
+    ("BB", "MP"):  ["55+", "A9s+", "ATo+", "A5s-A3s", "KQs", "KJs", "KJo"],
+}
+
+# ------------------------------------------- 被 3bet（你开池后被人加回来）
+# 变体 later = 后位 3bet（翻后你没位置：4bet 多诈唬、跟注紧）
+#       blind = 盲注 3bet（翻后你有位置：跟注更宽）
+# 动作 = 4bet / 跟注 / 弃牌。深码、中码共用；短码另有 jam 表。
+V3B = {
+    "EP":  {"later": (["QQ+", "AKs", "AKo", "A5s-A3s"],
+                      ["JJ-99", "AQs", "AJs", "ATs", "KQs"]),
+            "blind": (["QQ+", "AKs", "AKo"],
+                      ["JJ-88", "AQs", "AJs", "ATs", "KQs", "QJs", "JTs"])},
+    "HJ":  {"later": (["QQ+", "AKs", "AKo", "A5s-A3s"],
+                      ["JJ-99", "AQs", "AJs", "ATs", "KQs", "QJs"]),
+            "blind": (["QQ+", "AKs", "AKo"],
+                      ["JJ-77", "AQs", "AJs", "ATs", "KQs", "KJs-KTs", "QJs", "QTs",
+                       "JTs", "T9s", "98s"])},
+    "CO":  {"later": (["QQ+", "AKs", "AKo", "A5s-A3s"],
+                      ["JJ-88", "AQs", "AJs", "ATs", "KQs", "QJs", "JTs", "T9s"]),
+            "blind": (["QQ+", "AKs", "AKo", "A5s"],
+                      ["JJ-77", "AQs", "AJs", "ATs", "A9s", "KQs", "KJs-KTs", "QJs",
+                       "QTs", "JTs", "T9s", "98s", "87s", "AQo", "AJo"])},
+    "BTN": {"blind": (["QQ+", "AKs", "AKo", "A5s-A2s"],
+                      ["JJ-77", "AQs", "AJs", "ATs", "A9s", "KQs", "KJs-KTs", "QJs",
+                       "QTs", "JTs", "T9s", "98s", "87s", "AQo", "AJo", "KQo"])},
+    "SB":  {"later": (["QQ+", "AKs", "AKo", "A5s-A2s"],
+                      ["JJ-88", "AQs", "AJs", "ATs", "KQs", "QJs", "JTs", "T9s",
+                       "98s"])},
+}
+# 3bet 方的参考范围（用于「对 3bet 范围胜率」的蒙特卡洛）
+V3_RANGE = {
+    "later": ["99+", "AJs+", "A5s-A2s", "KQs", "AQo+"],
+    "blind": ["88+", "ATs+", "A5s-A2s", "KQs", "KJs", "QJs", "AQo+", "KQo"],
+}
+# 短码：被 3bet 后基本 jam-or-fold，只列全下（4bet-jam）范围
+SHORT_V3B = {
+    ("EP", "later"):  ["TT+", "AKs", "AKo"],
+    ("EP", "blind"):  ["TT+", "AKs", "AKo", "A5s"],
+    ("HJ", "later"):  ["TT+", "AKs", "AKo"],
+    ("HJ", "blind"):  ["99+", "AKs", "AKo", "A5s"],
+    ("CO", "later"):  ["99+", "AKs", "AKo", "A5s"],
+    ("CO", "blind"):  ["99+", "AKs", "AKo", "A5s-A4s"],
+    ("BTN", "blind"): ["99+", "AKs", "AKo", "A5s-A2s"],
+    ("SB", "later"):  ["99+", "AKs", "AKo", "A5s-A2s"],
+}
+
+# ------------------------------------------------- 混合频率（深码面对开池）
+# hand: [3bet%, 跟注%]，剩余为弃牌。混合牌从 raise/call 纯集合里移出。
+MIX8 = {
+    "BB": {
+        "EP": {"QTs": [40, 60], "KJo": [0, 55], "ATo": [30, 70], "76s": [50, 0]},
+        "MP": {"KQo": [50, 50], "QTs": [40, 60], "J8s": [35, 65], "AJo": [35, 65]},
+        "LP": {"KQo": [60, 40], "QTs": [50, 50], "A5o": [50, 0], "QJo": [0, 45],
+               "J8o": [0, 50]},
+        "SB": {"KQo": [55, 45], "QTs": [45, 55], "A5o": [40, 0], "AJo": [50, 50]},
+    },
+    "CO": {
+        "EP": {"KQo": [50, 50], "AJo": [0, 60], "JTs": [50, 50]},
+        "MP": {"KQo": [50, 50], "QTs": [50, 50], "A9s": [0, 60]},
+        "LP": {"QTs": [50, 50], "AJo": [0, 60], "KQo": [55, 45]},
+    },
+    "BTN": {
+        "EP": {"A5o": [50, 0], "KJs": [50, 50], "J8s": [0, 55]},
+        "MP": {"KJo": [0, 55], "QJo": [0, 50], "A5o": [40, 0], "QTs": [45, 55]},
+        "LP": {"KJo": [0, 50], "QJo": [0, 45], "A5o": [40, 0], "K5s": [35, 65]},
+    },
+    "SB": {
+        "EP": {"QJo": [45, 0], "KJo": [50, 0]},
+        "MP": {"KJo": [0, 50], "QTs": [45, 55], "A5o": [40, 0]},
+        "LP": {"KJo": [0, 55], "QJo": [0, 45], "A5o": [35, 0], "QTs": [45, 55]},
+    },
 }
 
 # 极短码多人表：PokerCoaching 公开无前注 push/fold 基准（Jonathan Little），
@@ -562,14 +658,14 @@ JAM_CLASS = {
 COMBOS = {c: combos_of(c) for c in all_classes()}
 
 
-def band_positions(size, seats, rfi_map, vs_map):
-    """按人数组装 positions；rfi_map/vs_map 给出每座位的内容。"""
+def band_positions(size, seats, rfi_map, vs_map, v3_map=None):
+    """按人数组装 positions；rfi_map/vs_map/v3_map 给出每座位的内容。"""
     positions = []
     for i, seat in enumerate(seats):
         behind = len(seats) - 1 - i
         notes = NOTE_OVERRIDE.get(size, {}).get(seat) or NOTES[seat]
         entry = {"id": seat, "cn": CN[seat], "behind": behind,
-                 "notes": {"rfi": notes[0], "vs": notes[1]}, "vs": {}}
+                 "notes": {"rfi": notes[0], "vs": notes[1]}, "vs": {}, "v3": {}}
         spec = rfi_map[seat]
         s = spec["set"]
         entry["rfi"] = {
@@ -578,12 +674,12 @@ def band_positions(size, seats, rfi_map, vs_map):
             "label": spec.get("label", "加注"), "callLabel": "—",
             "tokens": spec.get("tokens", []),
         }
-        for bucket in ("EP", "LP", "SB"):
+        for bucket in ("EP", "MP", "LP", "SB"):
             info = vs_map.get(seat, {}).get(bucket)
             if not info:
                 continue
             t3, cl = info["three"], info["call"]
-            entry["vs"][bucket] = {
+            e = entry["vs"][bucket] = {
                 "raise": sorted(t3), "call": sorted(cl),
                 "raisePct": pct(t3), "callPct": pct(cl),
                 "playPct": pct(t3 | cl),
@@ -594,6 +690,21 @@ def band_positions(size, seats, rfi_map, vs_map):
                 "openers": info["openers"],
                 "openerPct": info.get("openerPct", info["pct"]),
             }
+            if info.get("mix"):
+                e["mix"] = info["mix"]
+        if v3_map:
+            for bucket, info in v3_map.get(seat, {}).items():
+                entry["v3"][bucket] = {
+                    "raise": sorted(info["four"]), "call": sorted(info["call"]),
+                    "raisePct": pct(info["four"]), "callPct": pct(info["call"]),
+                    "playPct": pct(info["four"] | info["call"]),
+                    "label": info.get("label", "4-Bet"),
+                    "callLabel": info.get("callLabel", "跟注"),
+                    "raiseTokens": info["fourTokens"], "callTokens": info["callTokens"],
+                    "eqKey": info["eqKey"], "variant": info["variant"],
+                    "rangePct": info.get("rangePct"),
+                    "threebettors": info["threebettors"],
+                }
         positions.append(entry)
     return positions
 
@@ -621,7 +732,7 @@ def build():
             rank_by_n[c][n] = i + 1
 
     # ---- 深码：现有逻辑
-    deep_rfi_sets, deep_vs_ranges = {}, {}
+    deep_rfi_sets, deep_vs_ranges, deep_v3_ranges = {}, {}, {}
     for size, seats in TABLES.items():
         deep_rfi_sets[size] = {}
         for seat in seats:
@@ -631,7 +742,7 @@ def build():
             deep_rfi_sets[size][seat] = set() if seat == "BB" else expand(resolve_rfi(src))
         table_vs = VS_TABLES.get(size, {})
         for i, seat in enumerate(seats):
-            for bucket in ("EP", "LP", "SB"):
+            for bucket in ("EP", "MP", "LP", "SB"):
                 eligible = [s for s in seats[:i]
                             if s in BUCKET_SEATS[size].get(bucket, [])]
                 entry = table_vs.get(seat, {}).get(bucket)
@@ -640,14 +751,50 @@ def build():
                 three, call_t = resolve_vs(entry)
                 t3 = expand(three)
                 cl = expand(call_t) - t3
+                mix = {}
+                for h, (r, c) in MIX8.get(seat, {}).get(bucket, {}).items():
+                    t3.discard(h)
+                    cl.discard(h)
+                    mix[h] = {"r": r, "c": c, "f": 100 - r - c}
                 u = set()
                 for s in eligible:
                     u |= deep_rfi_sets[size][s]
-                deep_vs_ranges[(size, seat, bucket)] = {
+                info = {
                     "openers": eligible, "pct": pct(u),
                     "combos": [(a, b) for h in u for a, b in COMBOS[h]],
                     "three": t3, "call": cl, "threeTokens": three, "callTokens": call_t,
                     "eqKey": f"{size}|{seat}|{bucket}",
+                }
+                if mix:
+                    info["mix"] = mix
+                deep_vs_ranges[(size, seat, bucket)] = info
+
+        # 被 3bet：LP3=后位 3bet（你没位置），SB3=盲注 3bet（你有位置；SB 开池时除外）
+        for i, seat in enumerate(seats):
+            if seat == "BB":
+                continue
+            after = seats[i + 1:]
+            nonblind_after = [s for s in after if s not in ("SB", "BB")]
+            cls = seat_class(len(seats) - 1 - i)
+            v3buckets = {}
+            if nonblind_after and "later" in V3B.get(cls, {}):
+                v3buckets["LP3"] = "later"
+            if seat == "SB" and "later" in V3B.get(cls, {}):
+                v3buckets["SB3"] = "later"          # BB 3bet：翻后小盲先行动
+            elif any(s in ("SB", "BB") for s in after) and "blind" in V3B.get(cls, {}):
+                v3buckets["SB3"] = "blind"
+            for bucket, variant in v3buckets.items():
+                four_t, call_t = V3B[cls][variant]
+                four = expand(four_t)
+                call = expand(call_t) - four
+                deep_v3_ranges[(size, seat, bucket)] = {
+                    "four": four, "call": call,
+                    "fourTokens": four_t, "callTokens": call_t,
+                    "variant": variant,
+                    "rangePct": pct(expand(V3_RANGE["later" if bucket == "LP3" else "blind"])),
+                    "eqKey": f"3b|{'later' if bucket == 'LP3' else 'blind'}",
+                    "threebettors": nonblind_after if bucket == "LP3"
+                    else [s for s in after if s in ("SB", "BB")],
                 }
 
     vs_tasks = []
@@ -655,7 +802,7 @@ def build():
     # ---- 深码 positions
     deep_tables = {}
     for size, seats in TABLES.items():
-        rfi_map, vs_map = {}, {}
+        rfi_map, vs_map, v3_map = {}, {}, {}
         for seat in seats:
             tokens = resolve_rfi(RFI_TABLES.get(size, {}).get(seat) or RFI8.get(seat, []))
             rfi_map[seat] = {"set": deep_rfi_sets[size][seat], "tokens": tokens}
@@ -663,12 +810,16 @@ def build():
             if sz != size:
                 continue
             vs_map.setdefault(seat, {})[bucket] = info
-        deep_tables[str(size)] = {"positions": band_positions(size, seats, rfi_map, vs_map)}
+        for (sz, seat, bucket), info in deep_v3_ranges.items():
+            if sz != size:
+                continue
+            v3_map.setdefault(seat, {})[bucket] = info
+        deep_tables[str(size)] = {"positions": band_positions(size, seats, rfi_map, vs_map, v3_map)}
 
     # ---- 中码：深码剔除投机牌；对范围胜率沿用深码键（开池范围只微调，差值 <1 个点）
     mid_tables = {}
     for size, seats in TABLES.items():
-        rfi_map, vs_map = {}, {}
+        rfi_map, vs_map, v3_map = {}, {}, {}
         for i, seat in enumerate(seats):
             cls = seat_class(len(seats) - 1 - i)
             base = deep_rfi_sets[size][seat]
@@ -677,18 +828,22 @@ def build():
                              "tokens": resolve_rfi(RFI_TABLES.get(size, {}).get(seat)
                                                    or RFI8.get(seat, []))}
         for seat in seats:
-            for bucket in ("EP", "LP", "SB"):
+            for bucket in ("EP", "MP", "LP", "SB"):
                 info = deep_vs_ranges.get((size, seat, bucket))
                 if not info:
                     continue
                 call = info["call"] - expand(MID_TRIM_CALL)
                 vs_map.setdefault(seat, {})[bucket] = dict(info, call=call)
-        mid_tables[str(size)] = {"positions": band_positions(size, seats, rfi_map, vs_map)}
+            for bucket in ("LP3", "SB3"):
+                info = deep_v3_ranges.get((size, seat, bucket))
+                if info:
+                    v3_map.setdefault(seat, {})[bucket] = info
+        mid_tables[str(size)] = {"positions": band_positions(size, seats, rfi_map, vs_map, v3_map)}
 
     # ---- 短码：min-raise 开池 + reshove 全下；跟注刻意留空
     short_tables = {}
     for size, seats in TABLES.items():
-        rfi_map, vs_map = {}, {}
+        rfi_map, vs_map, v3_map = {}, {}, {}
         for i, seat in enumerate(seats):
             cls = seat_class(len(seats) - 1 - i)
             s = set() if seat == "BB" else expand(SHORT_RFI.get(cls, []))
@@ -696,7 +851,7 @@ def build():
                              "label": "min-raise"}
         for i, seat in enumerate(seats):
             mycls = seat_class(len(seats) - 1 - i)
-            for bucket in ("EP", "LP", "SB"):
+            for bucket in ("EP", "MP", "LP", "SB"):
                 eligible = [s for s in seats[:i]
                             if s in BUCKET_SEATS[size].get(bucket, [])]
                 tokens = SHORT_RESHOVE.get((mycls, bucket))
@@ -716,7 +871,30 @@ def build():
                 }
                 vs_map.setdefault(seat, {})[bucket] = info
                 vs_tasks += [(c, key, info["combos"]) for c in classes]
-        short_tables[str(size)] = {"positions": band_positions(size, seats, rfi_map, vs_map)}
+            # 短码被 3bet：jam-or-fold
+            if seat != "BB":
+                after = seats[i + 1:]
+                nonblind_after = [s for s in after if s not in ("SB", "BB")]
+                v3buckets = {}
+                if nonblind_after and (mycls, "later") in SHORT_V3B:
+                    v3buckets["LP3"] = "later"
+                if seat == "SB" and (mycls, "later") in SHORT_V3B:
+                    v3buckets["SB3"] = "later"
+                elif any(s in ("SB", "BB") for s in after) and (mycls, "blind") in SHORT_V3B:
+                    v3buckets["SB3"] = "blind"
+                for bucket, variant in v3buckets.items():
+                    four_t = SHORT_V3B[(mycls, variant)]
+                    v3_map.setdefault(seat, {})[bucket] = {
+                        "four": expand(four_t), "call": set(),
+                        "fourTokens": four_t, "callTokens": [],
+                        "variant": variant,
+                        "rangePct": pct(expand(V3_RANGE["later" if bucket == "LP3" else "blind"])),
+                        "eqKey": f"3b|{'later' if bucket == 'LP3' else 'blind'}",
+                        "threebettors": nonblind_after if bucket == "LP3"
+                        else [s for s in after if s in ("SB", "BB")],
+                        "label": "全下 (4-Bet)", "callLabel": "—",
+                    }
+        short_tables[str(size)] = {"positions": band_positions(size, seats, rfi_map, vs_map, v3_map)}
 
     # ---- 极短码：多人 = PokerCoaching 无前注基准；单挑 = holdemmath 近精确均衡
     pf = json.load(open(os.path.join(HERE, "pushfold.json"), encoding="utf-8"))
@@ -741,6 +919,10 @@ def build():
     # ---- 深码场景的蒙特卡洛
     for info in deep_vs_ranges.values():
         vs_tasks += [(c, info["eqKey"], info["combos"]) for c in classes]
+    # 被 3bet：对「3bet 方参考范围」的胜率（两个变体共用，与人数无关）
+    for variant, toks in V3_RANGE.items():
+        combos = [(a, b) for h in expand(toks) for a, b in COMBOS[h]]
+        vs_tasks += [(c, f"3b|{variant}", combos) for c in classes]
 
     eq_vs = {c: {} for c in classes}
     vs_cache_path = os.path.join(HERE, "vs_cache.json")

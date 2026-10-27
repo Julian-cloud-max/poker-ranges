@@ -100,6 +100,13 @@
     color:#effff9;
   }
   .hc[data-act="fold"]{color:#8ba3b3; background:#0f1a23; border-color:#16242f}
+  .hc[data-act="mix"]{
+    background:
+      repeating-linear-gradient(135deg, rgba(0,0,0,.2) 0 3px, transparent 3px 7px),
+      linear-gradient(157deg, var(--raise1) 0%, var(--call2) 100%);
+    color:#fff8f5;
+  }
+  .hc[data-act="mix"] .hc-eq::after{content:" · 混"; font-style:normal}
   .hc[data-heat="1"]{background:var(--heat-bg); color:var(--heat-fg)}
   .hc[data-selected="1"]{outline:2px solid #f4fbff; outline-offset:1px; z-index:4; box-shadow:0 0 0 4px rgba(244,251,255,.12)}
   .hc-hand{font-size:11.5px; font-weight:500; line-height:1.05}
@@ -271,6 +278,7 @@
       <div class="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-[11.5px] text-[var(--muted)]">
         <span class="flex items-center gap-1.5"><span class="dot" style="background:linear-gradient(160deg,var(--raise1),var(--raise2))"></span><span id="lgRaise">加注</span></span>
         <span id="lgCallWrap" class="flex items-center gap-1.5"><span class="dot" style="background:linear-gradient(160deg,var(--call1),var(--call2))"></span><span id="lgCall">跟注</span></span>
+        <span id="lgMixWrap" class="hidden items-center gap-1.5"><span class="dot" style="background:linear-gradient(160deg,var(--raise1),var(--call2))"></span>混合打法（点开看频率）</span>
         <span class="flex items-center gap-1.5"><span class="dot" style="background:#0f1a23; border:1px solid var(--line2)"></span>弃牌</span>
         <span class="text-[var(--dim)]" id="legendNote"></span>
       </div>
@@ -325,7 +333,8 @@
             <th class="pb-2 pr-3 font-medium">身后</th>
             <th class="pb-2 pr-3 font-medium">开池 RFI</th>
             <th class="pb-2 pr-3 font-medium">面对前位开池</th>
-            <th class="pb-2 pr-3 font-medium">面对后位开池</th>
+            <th class="pb-2 pr-3 font-medium">面对 HJ/CO</th>
+            <th class="pb-2 pr-3 font-medium">面对按钮开池</th>
             <th class="pb-2 font-medium">面对小盲开池</th>
           </tr>
         </thead>
@@ -419,7 +428,7 @@
           </p>
           <p class="mt-2 text-[11.5px] leading-relaxed text-[var(--dim)]">
             牌面判断优先级：对子面 &gt; 单色 &gt; 高张/中低 &gt; 干燥/湿润。
-            数字是基准线，对手是跟注站时砍掉所有诈唬、紧弱型时提高偷池频率。
+            「本街行动查询器」会把你手里的牌归入六个牌力档，按所选线、街和对手类型给出这一个街的动作与下注尺度。
           </p>
         </div>
       </aside>
@@ -436,7 +445,7 @@
 const D = /*__DATA__*/;
 const RANKS = Array.from("AKQJT98765432");
 const HAND = D.hands;
-const BUCKET_ORDER = ["EP", "LP", "SB"];
+const BUCKET_ORDER = ["EP", "MP", "LP", "SB"];
 const SIZES = [2, 3, 4, 5, 6, 7, 8, 9];
 const BANDS = ["deep", "mid", "short", "jam"];
 const BAND_LABEL = { deep: "深码", mid: "中码", short: "短码", jam: "极短码" };
@@ -552,13 +561,28 @@ function handClass(i, j) {
 }
 
 function vsKeys(p) {
-  // deep/mid/short 用 EP/LP/SB 固定顺序；jam 的 key 是全下者座位，按行动顺序排
+  // deep/mid/short 用 EP/MP/LP/SB 固定顺序；jam 的 key 是全下者座位，按行动顺序排
   if (S.band === "jam")
     return POS.filter(x => p.vs[x.id]).map(x => x.id);
   return BUCKET_ORDER.filter(b => p.vs[b]);
 }
+function v3Keys(p) {
+  return (!p.v3) ? [] : ["LP3", "SB3"].filter(b => p.v3[b]);
+}
+function v3BucketLabel(seat, b) {
+  const v = p_getV3(seat, b);
+  if (b === "LP3") return "后位 3bet";
+  return v.threebettors.join("/") + " 3bet";
+}
+function p_getV3(seat, b) { return BY_ID[seat].v3[b]; }
 function normalize() {
   const p = BY_ID[S.pos];
+  if (S.scenario === "v3") {
+    const v3 = v3Keys(p);
+    if (!v3.length) { S.scenario = p.rfi.na ? (vsKeys(p).length ? "vs" : "rfi") : "rfi"; }
+    else if (!v3.includes(S.bucket)) S.bucket = v3[0];
+    if (S.scenario === "v3") return;
+  }
   const avail = vsKeys(p);
   if (S.scenario === "rfi" && p.rfi.na) S.scenario = avail.length ? "vs" : "rfi";
   if (S.scenario === "vs") {
@@ -573,6 +597,11 @@ function ctx() {
     return { na: !!p.rfi.na, data: p.rfi, raise: new Set(p.rfi.raise), call: new Set(),
              label: p.rfi.label || "加注", callLabel: "跟注", eqKey: null };
   }
+  if (S.scenario === "v3") {
+    const v = p.v3[S.bucket];
+    return { na: false, data: v, raise: new Set(v.raise), call: new Set(v.call),
+             label: v.label, callLabel: v.callLabel, eqKey: v.eqKey };
+  }
   const v = p.vs[S.bucket];
   return { na: false, data: v, raise: new Set(v.raise), call: new Set(v.call),
            label: v.label, callLabel: v.callLabel, eqKey: v.eqKey };
@@ -581,15 +610,30 @@ function ctx() {
 function actOf(cls) {
   const c = ctx();
   if (c.na) return "na";
+  if (c.data.mix && c.data.mix[cls]) return "mix";
   if (c.raise.has(cls)) return "raise";
   if (c.call.has(cls)) return "call";
   return "fold";
 }
 
 function actionLabel(act) {
+  if (act === "mix") return "混合";
   if (act === "raise") return ctx().label;
   if (act === "call") return ctx().callLabel;
   return "弃牌";
+}
+
+/* 混合牌按组合数折算进总百分比 */
+function effPcts(d) {
+  let rp = d.raisePct, cp = d.callPct;
+  if (d.mix) {
+    for (const h in d.mix) {
+      const m = d.mix[h], k = (HAND[h] ? HAND[h].combos : 0) / 1326 * 100;
+      rp += m.r / 100 * k;
+      cp += m.c / 100 * k;
+    }
+  }
+  return { rp: Math.round(rp * 10) / 10, cp: Math.round(cp * 10) / 10 };
 }
 
 function equityFor(cls) {
@@ -664,17 +708,31 @@ function renderRail() {
 function renderScenarios() {
   const p = BY_ID[S.pos];
   const avail = vsKeys(p);
+  const v3avail = v3Keys(p);
   const jam = S.band === "jam";
   document.getElementById("scenarioTabs").innerHTML = `
     <button type="button" class="tab" role="tab" data-sc="rfi" aria-selected="${S.scenario === "rfi"}"
       ${p.rfi.na ? "disabled" : ""} aria-controls="matrix">${jam ? "首入全下" : "开池 RFI"}</button>
     <button type="button" class="tab" role="tab" data-sc="vs" aria-selected="${S.scenario === "vs"}"
-      ${avail.length ? "" : "disabled"} aria-controls="matrix">${jam ? "面对全下" : "面对开池"}</button>`;
+      ${avail.length ? "" : "disabled"} aria-controls="matrix">${jam ? "面对全下" : "面对开池"}</button>
+    <button type="button" class="tab" role="tab" data-sc="v3" aria-selected="${S.scenario === "v3"}"
+      ${v3avail.length && !jam ? "" : "disabled"} aria-controls="matrix">被 3bet</button>`;
   document.querySelectorAll("#scenarioTabs [data-sc]").forEach(b =>
     b.addEventListener("click", () => { S.scenario = b.dataset.sc; normalize(); renderAll(); }));
 
   const row = document.getElementById("bucketRow");
-  if (S.scenario === "vs") {
+  if (S.scenario === "v3") {
+    row.innerHTML = `<span class="mr-1 text-[11px] text-[var(--dim)]">3bet 来自</span>` +
+      v3avail.map(b => {
+        const v = p.v3[b];
+        const lbl = b === "LP3" ? "后位" : v.threebettors.join("/");
+        return `<button type="button" class="chip" data-bk="${b}" aria-pressed="${S.bucket === b}">
+          ${lbl} 3bet <span class="opacity-55">${v.rangePct}% 范围</span></button>`;
+      }).join("") +
+      `<span class="ml-1 text-[11px] text-[var(--dim)]">你先加注、被人加回来后的应对。</span>`;
+    row.querySelectorAll("[data-bk]").forEach(b =>
+      b.addEventListener("click", () => { S.bucket = b.dataset.bk; normalize(); renderAll(); }));
+  } else if (S.scenario === "vs") {
     row.innerHTML = `<span class="mr-1 text-[11px] text-[var(--dim)]">${jam ? "全下者" : "开池者"}</span>` +
       avail.map(b => `<button type="button" class="chip" data-bk="${b}" aria-pressed="${S.bucket === b}">
         ${bucketLabel(p.id, b)} <span class="opacity-55">${p.vs[b].openerPct}%</span></button>`).join("");
@@ -726,21 +784,28 @@ function renderMatrix() {
     cap.innerHTML = jamTxt
       ? `<span class="text-[var(--txt)]">大盲没有首入全下</span>——全员弃牌你直接赢下底池。切到「面对全下」看跟注范围。`
       : `<span class="text-[var(--txt)]">大盲没有开池决策</span>——全员弃牌你直接赢下底池。切到「面对开池」看防守范围。`;
+  } else if (S.scenario === "v3") {
+    const bl = v3BucketLabel(S.pos, S.bucket);
+    cap.innerHTML = `<span class="text-[var(--txt)]">${BY_ID[S.pos].cn} ${S.pos}</span> 面对${bl}：${c.label} <span class="text-[var(--txt)]">${c.data.raisePct}%</span> · 跟注 <span class="text-[var(--txt)]">${c.data.callPct}%</span> · 3bet 方参考范围 ${c.data.rangePct}%`;
   } else if (S.scenario === "rfi") {
     cap.innerHTML = `<span class="text-[var(--txt)]">${BY_ID[S.pos].cn} ${S.pos}</span> ${jamTxt ? "全下" : "开池"} <span class="text-[var(--txt)]">${c.data.playPct}%</span>，其余 ${(100 - c.data.playPct).toFixed(1)}% 弃牌${jamTxt ? " · " + S.depth + "BB" : ""}`;
   } else {
+    const ep = effPcts(c.data);
     cap.innerHTML = jamTxt
       ? `<span class="text-[var(--txt)]">${BY_ID[S.pos].cn} ${S.pos}</span> 面对${bucketLabel(S.pos, S.bucket)}：跟注 <span class="text-[var(--txt)]">${c.data.callPct}%</span>（需胜率 ≥ ${c.data.needed}%）· 其余弃牌`
-      : `<span class="text-[var(--txt)]">${BY_ID[S.pos].cn} ${S.pos}</span> 面对${bucketLabel(S.pos, S.bucket)}：${c.data.label} <span class="text-[var(--txt)]">${c.data.raisePct}%</span> · 跟注 <span class="text-[var(--txt)]">${c.data.callPct}%</span>`;
+      : `<span class="text-[var(--txt)]">${BY_ID[S.pos].cn} ${S.pos}</span> 面对${bucketLabel(S.pos, S.bucket)}：${c.data.label} <span class="text-[var(--txt)]">${ep.rp}%</span> · 跟注 <span class="text-[var(--txt)]">${ep.cp}%</span>${c.data.mix ? " · 含混合" : ""}`;
   }
   legendNote.textContent = heat
-    ? `格内数字与底色 = ${S.scenario === "rfi" ? "单挑胜率" : "对开池范围胜率"}`
-    : `格内数字 = ${S.scenario === "rfi" ? "单挑胜率（对 1 个随机手牌）" : "对该开池范围的胜率"}`;
+    ? `格内数字与底色 = ${S.scenario === "rfi" ? "单挑胜率" : S.scenario === "v3" ? "对 3bet 范围胜率" : "对开池范围胜率"}`
+    : `格内数字 = ${S.scenario === "rfi" ? "单挑胜率（对 1 个随机手牌）" : S.scenario === "v3" ? "对 3bet 范围的胜率" : "对该开池范围的胜率"}`;
 
   document.getElementById("lgRaise").textContent = c.label;
   document.getElementById("lgCall").textContent = c.callLabel;
   document.getElementById("lgCallWrap").style.display =
     (!c.na && c.call.size) ? "" : "none";
+  const hasMix = !c.na && !!c.data.mix && Object.keys(c.data.mix).length;
+  document.getElementById("lgMixWrap").classList.toggle("hidden", !hasMix);
+  document.getElementById("lgMixWrap").classList.toggle("flex", !!hasMix);
 }
 
 /* ---------------- detail ---------------- */
@@ -794,6 +859,17 @@ function renderDetail() {
       <div class="flex flex-1 flex-wrap gap-1.5">${toks.call.map(t => `<span class="tok">${t}</span>`).join("")}</div>
     </div>`);
   }
+  if (c.data.mix && Object.keys(c.data.mix).length) {
+    const parts = Object.entries(c.data.mix).map(([h, m]) => {
+      const seg = [m.r ? `${c.label}${m.r}%` : "", m.c ? `${c.callLabel}${m.c}%` : "",
+                   m.f ? `弃${m.f}%` : ""].filter(Boolean).join("/");
+      return `<span class="tok" style="border-color:rgba(232,183,74,.45)">${h} <span style="color:#e8b74a">${seg}</span></span>`;
+    });
+    groups.push(`<div class="flex flex-wrap items-start gap-1.5">
+      <span class="mt-1 flex items-center gap-1 text-[10px]" style="min-width:2.6em;color:#e8b74a">混合</span>
+      <div class="flex flex-1 flex-wrap gap-1.5">${parts.join("")}</div>
+    </div>`);
+  }
   document.getElementById("dTokens").innerHTML = groups.length
     ? groups.join("")
     : `<span class="text-[11.5px] text-[var(--dim)]">—</span>`;
@@ -806,14 +882,34 @@ function renderDetail() {
   }
   const cls = S.hand, h = HAND[cls], act = actOf(cls);
   const type = cls.length === 2 ? "对子" : cls.endsWith("s") ? "同花" : "非同花";
-  const actColor = act === "raise" ? "var(--raise1)" : act === "call" ? "var(--call1)" : "var(--dim)";
-  const actBg = act === "raise" ? "rgba(240,112,90,.14)" : act === "call" ? "rgba(70,195,147,.14)" : "rgba(255,255,255,.05)";
+  const actColor = act === "raise" ? "var(--raise1)" : act === "call" ? "var(--call1)"
+    : act === "mix" ? "#e8b74a" : "var(--dim)";
+  const actBg = act === "raise" ? "rgba(240,112,90,.14)" : act === "call" ? "rgba(70,195,147,.14)"
+    : act === "mix" ? "rgba(232,183,74,.14)" : "rgba(255,255,255,.05)";
   const eqVsVal = h.eqVs[c.eqKey] == null ? 0 : h.eqVs[c.eqKey];
   const vsBar = S.scenario === "vs"
     ? barRow("对" + bucketLabel(S.pos, S.bucket) + "范围", eqVsVal,
              S.band === "jam" ? (c.data.needed || 50) : 50,
              "linear-gradient(90deg,#a4552c,#f0a05a)")
+    : S.scenario === "v3"
+    ? barRow("对 3bet 方范围", eqVsVal, 50, "linear-gradient(90deg,#a4552c,#f0a05a)")
     : "";
+  const mixInfo = act === "mix" ? c.data.mix[cls] : null;
+  const mixBlock = mixInfo ? `
+    <div class="mt-3 rounded-lg border border-[var(--line)] px-2.5 py-2.5" style="background:rgba(232,183,74,.06)">
+      <div class="text-[11.5px] font-medium" style="color:#e8b74a">solver 在这里混合多种打法</div>
+      <div class="mix mt-2">
+        ${mixInfo.r ? `<i style="width:${mixInfo.r}%;background:var(--raise1)"></i>` : ""}
+        ${mixInfo.c ? `<i style="width:${mixInfo.c}%;background:var(--call1)"></i>` : ""}
+        ${mixInfo.f ? `<i style="width:${mixInfo.f}%;background:#2a3d4d"></i>` : ""}
+      </div>
+      <div class="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-[var(--muted)]">
+        ${mixInfo.r ? `<span><span class="dot" style="background:var(--raise1)"></span> ${c.label} ${mixInfo.r}%</span>` : ""}
+        ${mixInfo.c ? `<span><span class="dot" style="background:var(--call1)"></span> ${c.callLabel} ${mixInfo.c}%</span>` : ""}
+        ${mixInfo.f ? `<span><span class="dot" style="background:#2a3d4d"></span> 弃牌 ${mixInfo.f}%</span>` : ""}
+      </div>
+      <div class="mt-1.5 text-[11px] leading-relaxed text-[var(--dim)]">两种选择长期期望几乎相同：按对手调整（爱弃牌的多诈唬、爱跟注的只打价值），选顺手的固定下来即可。</div>
+    </div>` : "";
   const jamVerdict = (S.scenario === "vs" && S.band === "jam" && c.data.needed)
     ? `<div class="mt-3 rounded-lg border px-2.5 py-2 text-[11.5px] leading-relaxed"
          style="border-color:${eqVsVal >= c.data.needed ? "rgba(70,195,147,.45)" : "rgba(240,112,90,.45)"};background:${eqVsVal >= c.data.needed ? "rgba(70,195,147,.08)" : "rgba(240,112,90,.08)"}">
@@ -845,10 +941,13 @@ function renderDetail() {
       <div><div class="text-[var(--dim)]">${S.size} 人桌排名</div><div class="mt-0.5 text-[13px]">#${h.rankByN[S.size - 2]} <span class="text-[10px] text-[var(--dim)]">/ 169</span></div></div>
     </div>
     ${jamVerdict}
+    ${mixBlock}
     <p class="mt-3 text-[11.5px] leading-relaxed text-[var(--dim)]">${
       act === "na" ? "大盲没有开池决策。" :
-      act === "fold" ? "不在当前范围里。这种牌在这个位置入池，会被身后的强范围长期压制。"
+      act === "mix" ? "边界牌：上面给出了各动作的频率。"
+      : act === "fold" ? "不在当前范围里。这种牌在这个位置入池，会被身后的强范围长期压制。"
       : act === "call" ? "属于跟注范围：够强但不足以反加，靠位置和隐含赔率取胜。"
+      : S.scenario === "v3" ? "被 3bet 后继续反加以保护强牌或用 A 系牌做轻诈唬；其余按跟注/弃牌处理。"
       : "属于加注范围：主动做大底池，同时赶走身后有位置优势的牌。"
     }</p>`;
 }
@@ -878,6 +977,7 @@ function renderSummary() {
       <td class="py-2.5 pr-3 text-[11.5px] text-[var(--muted)]">${p.behind}</td>
       <td class="py-2.5 pr-3">${rfi}</td>
       <td class="py-2.5 pr-3">${summaryCell(p.vs.EP)}</td>
+      <td class="py-2.5 pr-3">${summaryCell(p.vs.MP)}</td>
       <td class="py-2.5 pr-3">${summaryCell(p.vs.LP)}</td>
       <td class="py-2.5">${summaryCell(p.vs.SB)}</td>
     </tr>`;
@@ -1066,7 +1166,7 @@ function computePostEquity(hero, board) {
     if (token !== pfEqToken) return;
     const hu = Math.round(equityMC(hero, board, 1, 4000) * 1000) / 10;
     const mw = Math.round(equityMC(hero, board, 7, 1200) * 1000) / 10;
-    if (token !== pfEqToken) return;
+    if (token !== pfEqToken || !post._eq) return;
     post._eq.hu = hu; post._eq.mw = mw;
     renderPostHand();
   }, 30);
@@ -1289,6 +1389,75 @@ function renderPostDeck() {
 }
 
 /* ---------- 联动面板：你这手牌怎么打 ---------- */
+/* ---------- 本街行动查询器 ---------- */
+const Q_SIZE_LADDER = ["1/3池", "1/2池", "2/3池", "底池"];
+function tierOf(info) {
+  switch (info.role) {
+    case "monster": case "strong": return "t1";
+    case "topGood": return "t2";
+    case "topWeak": case "second": return "t3";
+    case "drawStrong": return "t5";
+    case "weak": return info.made.includes("牌面三条") ? "t6" : "t4";
+    default: return "t6";
+  }
+}
+function queryPlan(line, street, tier, tex) {
+  const Q = PF.query;
+  let act = Q.plans[line][street][tier];
+  const ov = Q.overrides.find(o => o.tex === tex && o.line === line
+    && o.street === street && o[tier]);
+  if (ov) act = ov[tier];
+  let note = "";
+  const opp = Q.opp[post.opp || "normal"];
+  if ((post.opp || "normal") !== "normal" && opp) {
+    note = opp.note;
+    for (const r of (opp.rules || [])) {
+      if (!r.tiers.includes(tier) || !r.streets.includes(street)) continue;
+      if (r.ifAct && !r.ifAct.includes(act[0])) continue;
+      if (r.set) act = r.set;
+      if (r.sizeUp) {
+        const i = Q_SIZE_LADDER.indexOf(act[1]);
+        if (i >= 0 && i < Q_SIZE_LADDER.length - 1) act = [act[0], Q_SIZE_LADDER[i + 1]];
+      }
+    }
+  }
+  return { act, note };
+}
+function buildQueryBlock(info) {
+  const Q = PF.query;
+  const tier = tierOf(info);
+  const tName = Q.tiers.find(t => t.id === tier);
+  const street = post.qStreet || "flop";
+  const { act, note } = queryPlan(post.line, street, tier, post.tex);
+  const streetName = { flop: "翻牌", turn: "转牌", river: "河牌" }[street];
+  return `
+    <div class="mt-3 rounded-lg border px-2.5 py-2.5" style="border-color:rgba(126,231,199,.35);background:rgba(126,231,199,.05)">
+      <div class="flex items-center justify-between gap-2 flex-wrap">
+        <span class="text-[10px] uppercase tracking-[.14em] text-[var(--dim)]">本街行动 · 查询器</span>
+        <span class="flex gap-1">${[["flop", "翻牌"], ["turn", "转牌"], ["river", "河牌"]].map(([id, n]) =>
+          `<button type="button" class="chip" style="padding:2px 8px;font-size:10.5px" data-qst="${id}" aria-pressed="${street === id}">${n}</button>`).join("")}</span>
+      </div>
+      <div class="mt-2 flex items-center gap-2 flex-wrap">
+        <span class="text-[11px] text-[var(--dim)]">牌力档</span>
+        <span class="rounded-md px-2 py-0.5 text-[11px]" style="color:#7ee7c7;border:1px solid rgba(126,231,199,.4)">${tName.name}</span>
+        <span class="text-[10.5px] text-[var(--dim)]">${tName.sub}</span>
+      </div>
+      <div class="mt-1.5 flex items-center gap-2 flex-wrap">
+        <span class="text-[11px] text-[var(--dim)]">对手类型</span>
+        <span class="flex gap-1">${[["normal", "普通"], ["aggro", "激进"], ["passive", "紧弱"]].map(([id, n]) =>
+          `<button type="button" class="chip" style="padding:2px 8px;font-size:10.5px" data-opp="${id}" aria-pressed="${(post.opp || "normal") === id}">${n}</button>`).join("")}</span>
+      </div>
+      <div class="mt-2.5 flex items-baseline gap-2">
+        <span class="text-[19px] font-medium leading-none" style="color:#7ee7c7">${act[0]}</span>
+        ${act[1] !== "—" ? `<span class="text-[13px] text-[var(--muted)]">${act[1]}</span>` : ""}
+        <span class="text-[10.5px] text-[var(--dim)]">${streetName} · ${PF.lines.find(l => l.id === post.line).name}</span>
+      </div>
+      <div class="mt-1 text-[11px] leading-relaxed text-[var(--dim)]">
+        ${Q.notes[post.line][street]}${street !== "flop" ? "（转/河计划按翻牌档位延伸，还要结合实际发出的牌调整）" : ""}${note ? " · " + note : ""}
+      </div>
+    </div>`;
+}
+
 function renderPostHand() {
   const box = document.getElementById("postHandBody");
   if (post.board.length < 3) {
@@ -1332,10 +1501,15 @@ function renderPostHand() {
         ${PF_ROLE_LABEL[info.role] || info.role}</span>
     </div>
     <div class="mt-2 flex flex-col gap-2">
+      ${buildQueryBlock(info)}
       <div class="street-block"><div class="lb">翻牌</div><div class="tx">${advice.flop}</div></div>
       <div class="street-block"><div class="lb">转牌</div><div class="tx">${advice.turn}</div></div>
       <div class="street-block"><div class="lb">河牌</div><div class="tx">${advice.river}</div></div>
     </div>`;
+  box.querySelectorAll("[data-qst]").forEach(b =>
+    b.addEventListener("click", () => { post.qStreet = b.dataset.qst; renderPostHand(); }));
+  box.querySelectorAll("[data-opp]").forEach(b =>
+    b.addEventListener("click", () => { post.opp = b.dataset.opp; renderPostHand(); }));
 }
 
 /* ---------- 手牌跟随翻前点选（唯一来源） ---------- */
@@ -1405,9 +1579,9 @@ function readHash() {
     }
     return;
   }
-  // #<人数>/<档位>[/<深度>]/<座位>[/vs/<key>[/<手牌>]]；旧链接默认 8 人深码
+  // #<人数>/<档位>[/<深度>]/<座位>[/(rfi|vs|v3)/<key>[/<手牌>]]；旧链接默认 8 人深码
   const m = location.hash.match(
-    /^#(?:(\d)\/)?(?:([^\/]+)\/)?(?:(\d{1,2})bb\/)?([A-Z+][A-Z+0-9]*)(?:\/(rfi|vs))?(?:\/([^\/]+))?(?:\/([AKQJT2-9]{2}[so]?))?$/);
+    /^#(?:(\d)\/)?(?:([^\/]+)\/)?(?:(\d{1,2})bb\/)?([A-Z+][A-Z+0-9]*)(?:\/(rfi|vs|v3))?(?:\/([^\/]+))?(?:\/([AKQJT2-9]{2}[so]?))?$/);
   if (!m) return;
   const band = (m[2] && D.bands[m[2]]) ? m[2] : "deep";
   S.size = (m[1] && +m[1] >= 2 && +m[1] <= 9) ? +m[1] : (D.defaultSize || 8);
@@ -1416,7 +1590,10 @@ function readHash() {
   applySize(S.size);
   if (BY_ID[m[4]]) S.pos = m[4];
   if (m[5]) S.scenario = m[5];
-  if (m[6] && BY_ID[S.pos].vs[m[6]]) S.bucket = m[6];
+  if (m[6]) {
+    if (S.scenario === "v3" && BY_ID[S.pos].v3[m[6]]) S.bucket = m[6];
+    else if (BY_ID[S.pos].vs[m[6]]) S.bucket = m[6];
+  }
   if (m[7] && HAND[m[7]]) S.hand = m[7];
   S.view = "pre";
 }
@@ -1428,7 +1605,7 @@ function writeHash() {
     if (S.size !== (D.defaultSize || 8) || S.band !== "deep") bits.push(String(S.size), S.band);
     if (S.band === "jam") bits.push(S.depth + "bb");
     bits.push(S.pos);
-    if (S.scenario !== "rfi") bits.push("vs", S.bucket);
+    if (S.scenario !== "rfi") bits.push(S.scenario, S.bucket);
     if (S.hand) bits.push(S.hand);
     h = "#" + bits.join("/");
   }
